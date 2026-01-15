@@ -133,13 +133,13 @@ export default function PlaceSheet({
   const evaluation = dbPlace?.notes?.[0]?.evaluation;
 
   return (
-    <div className="fixed md:absolute bottom-0 md:top-0 right-0 h-full w-full md:w-[420px] bg-white shadow-[-10px_0_30px_rgba(0,0,0,0.1)] z-20 overflow-y-auto flex flex-col transition-all text-gray-900 font-sans border-t md:border-t-0 md:border-l border-gray-100 rounded-t-3xl md:rounded-none">
+    <div className="fixed md:absolute bottom-0 md:top-0 right-0 h-[100dvh] md:h-full w-full md:w-[420px] bg-white shadow-[-10px_0_30px_rgba(0,0,0,0.1)] z-20 flex flex-col transition-all text-gray-900 font-sans border-t md:border-t-0 md:border-l border-gray-100 rounded-t-3xl md:rounded-none overflow-hidden">
       {/* Mobile Handle */}
-      <div className="md:hidden flex justify-center pt-3 pb-1">
+      <div className="md:hidden flex justify-center pt-3 pb-1 shrink-0">
         <div className="w-12 h-1.5 bg-gray-200 rounded-full" />
       </div>
       {/* Header */}
-      <div className="p-6 pb-4 bg-white sticky top-0 z-30 border-b border-gray-50 flex flex-col gap-1">
+      <div className="p-6 pb-4 bg-white border-b border-gray-50 flex flex-col gap-1 shrink-0">
         <div className="flex justify-between items-start">
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2">
@@ -185,217 +185,222 @@ export default function PlaceSheet({
         </div>
       </div>
 
-      <div className="flex-1 p-6 space-y-10">
-        {/* Quick Actions / External Links */}
-        <div className="flex flex-wrap gap-2">
-          <a
-            href={`https://hogangnono.com/search?q=${encodeURIComponent(
-              place?.place_name || ""
-            )}`}
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-1.5 text-[11px] font-black bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg border border-indigo-100 hover:bg-indigo-100 transition-colors"
-          >
-            <ExternalLink className="w-3 h-3" /> HOGANGNONO
-          </a>
-          <a
-            href={`https://m.land.naver.com/search/result/${encodeURIComponent(
-              place?.place_name || ""
-            )}`}
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-1.5 text-[11px] font-black bg-green-50 text-green-700 px-3 py-1.5 rounded-lg border border-green-100 hover:bg-green-100 transition-colors"
-          >
-            <ExternalLink className="w-3 h-3" /> NAVER LAND
-          </a>
-          {dbPlace?.externalLinks?.map((link) => (
+      <div className="flex-1 overflow-y-auto p-6">
+        <div className="space-y-10">
+          {/* Quick Actions / External Links */}
+          <div className="flex flex-wrap gap-2">
             <a
-              key={link.id}
-              href={link.url}
+              href={`https://hogangnono.com/search?q=${encodeURIComponent(
+                place?.place_name || ""
+              )}`}
               target="_blank"
               rel="noreferrer"
-              className="flex items-center gap-1.5 text-[11px] font-black bg-gray-100 text-gray-600 px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-200 transition-colors"
+              className="flex items-center gap-1.5 text-[11px] font-black bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg border border-indigo-100 hover:bg-indigo-100 transition-colors"
             >
-              <ExternalLink className="w-3 h-3" /> {link.title.toUpperCase()}
+              <ExternalLink className="w-3 h-3" /> HOGANGNONO
             </a>
-          ))}
-        </div>
-
-        {/* Favorite Marker */}
-        <div className="space-y-3">
-          <label className="text-xs font-black text-gray-400 uppercase tracking-tighter">
-            마커 색상 설정
-          </label>
-          <div className="flex gap-2.5">
-            {COLORS.map((color) => (
-              <button
-                key={color}
-                onClick={() => setSelectedColor(color)}
-                className={`w-7 h-7 rounded-full border-2 transition-all hover:scale-110 ${
-                  selectedColor === color
-                    ? "border-gray-900 shadow-lg"
-                    : "border-white"
-                }`}
-                style={{ backgroundColor: color }}
-              />
-            ))}
-            <button
-              onClick={() => setSelectedColor(null)}
-              className={`w-7 h-7 rounded-full border border-gray-200 flex items-center justify-center text-[10px] font-black text-gray-300 ${
-                selectedColor === null
-                  ? "bg-gray-900 text-white border-gray-900 shadow-lg"
-                  : "bg-white"
-              }`}
+            <a
+              href={`https://m.land.naver.com/search/result/${encodeURIComponent(
+                place?.place_name || ""
+              )}`}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-1.5 text-[11px] font-black bg-green-50 text-green-700 px-3 py-1.5 rounded-lg border border-green-100 hover:bg-green-100 transition-colors"
             >
-              해제
-            </button>
+              <ExternalLink className="w-3 h-3" /> NAVER LAND
+            </a>
+            {dbPlace?.externalLinks?.map((link) => (
+              <a
+                key={link.id}
+                href={link.url}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-1.5 text-[11px] font-black bg-gray-100 text-gray-600 px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-200 transition-colors"
+              >
+                <ExternalLink className="w-3 h-3" /> {link.title.toUpperCase()}
+              </a>
+            ))}
           </div>
-        </div>
 
-        {/* Dynamic Template Questions */}
-        {!template ? (
-          <div className="py-10 text-center space-y-3">
-            <div className="animate-spin w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full mx-auto" />
-            <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">
-              템플릿 불러오는 중...
-            </p>
-            <div className="p-4 bg-red-50 text-red-500 text-xs rounded-xl border border-red-100 text-left font-medium">
-              템플릿을 불러올 수 없습니다. 데이터베이스 연결
-              설정(DATABASE_URL)이나 Prisma 클라이언트 생성이 완료되었는지
-              확인해 주세요.
+          {/* Favorite Marker */}
+          <div className="space-y-3">
+            <label className="text-xs font-black text-gray-400 uppercase tracking-tighter">
+              마커 색상 설정
+            </label>
+            <div className="flex gap-2.5">
+              {COLORS.map((color) => (
+                <button
+                  key={color}
+                  onClick={() => setSelectedColor(color)}
+                  className={`w-7 h-7 rounded-full border-2 transition-all hover:scale-110 ${
+                    selectedColor === color
+                      ? "border-gray-900 shadow-lg"
+                      : "border-white"
+                  }`}
+                  style={{ backgroundColor: color }}
+                />
+              ))}
+              <button
+                onClick={() => setSelectedColor(null)}
+                className={`w-7 h-7 rounded-full border border-gray-200 flex items-center justify-center text-[10px] font-black text-gray-300 ${
+                  selectedColor === null
+                    ? "bg-gray-900 text-white border-gray-900 shadow-lg"
+                    : "bg-white"
+                }`}
+              >
+                해제
+              </button>
             </div>
           </div>
-        ) : (
-          <div className="space-y-12 pb-64">
-            {Object.entries(categories).map(([catName, qs]) => (
-              <div key={catName} className="space-y-5">
-                <h3 className="text-sm font-black text-white bg-blue-600 inline-block px-3 py-1.5 rounded-lg shadow-md shadow-blue-100">
-                  {catName}
-                </h3>
-                <div className="space-y-7 border-l-2 border-gray-50 pl-4">
-                  {qs.map((q) => (
-                    <div key={q.id} className="space-y-3">
-                      <label className="text-[13px] font-bold text-gray-700 leading-snug flex items-start gap-1.5">
-                        {q.text}
-                        {q.isCritical && (
-                          <span className="bg-red-50 text-red-500 text-[10px] px-1.5 py-0.5 rounded font-black border border-red-100 uppercase">
-                            최우선 항목
-                          </span>
-                        )}
-                      </label>
 
-                      {q.type === "rating" && (
-                        <div className="flex gap-1.5">
-                          {[1, 2, 3, 4, 5].map((num) => (
+          {/* Dynamic Template Questions */}
+          {!template ? (
+            <div className="py-10 text-center space-y-3">
+              <div className="animate-spin w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full mx-auto" />
+              <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">
+                템플릿 불러오는 중...
+              </p>
+              <div className="p-4 bg-red-50 text-red-500 text-xs rounded-xl border border-red-100 text-left font-medium">
+                템플릿을 불러올 수 없습니다. 데이터베이스 연결
+                설정(DATABASE_URL)이나 Prisma 클라이언트 생성이 완료되었는지
+                확인해 주세요.
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-12">
+              {Object.entries(categories).map(([catName, qs]) => (
+                <div key={catName} className="space-y-5">
+                  <h3 className="text-sm font-black text-white bg-blue-600 inline-block px-3 py-1.5 rounded-lg shadow-md shadow-blue-100">
+                    {catName}
+                  </h3>
+                  <div className="space-y-7 border-l-2 border-gray-50 pl-4">
+                    {qs.map((q) => (
+                      <div key={q.id} className="space-y-3">
+                        <label className="text-[13px] font-bold text-gray-700 leading-snug flex items-start gap-1.5">
+                          {q.text}
+                          {q.isCritical && (
+                            <span className="bg-red-50 text-red-500 text-[10px] px-1.5 py-0.5 rounded font-black border border-red-100 uppercase">
+                              최우선 항목
+                            </span>
+                          )}
+                        </label>
+
+                        {q.type === "rating" && (
+                          <div className="flex gap-1.5">
+                            {[1, 2, 3, 4, 5].map((num) => (
+                              <button
+                                key={num}
+                                onClick={() => handleAnswerChange(q.id, num)}
+                                className={`w-9 h-9 rounded-xl border-2 font-black text-xs transition-all flex items-center justify-center ${
+                                  answers[q.id] === num
+                                    ? "bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-100 scale-105"
+                                    : "bg-white border-gray-50 text-gray-300 hover:border-gray-200"
+                                }`}
+                              >
+                                {num}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+
+                        {q.type === "yesno" && (
+                          <div className="flex gap-2">
                             <button
-                              key={num}
-                              onClick={() => handleAnswerChange(q.id, num)}
-                              className={`w-9 h-9 rounded-xl border-2 font-black text-xs transition-all flex items-center justify-center ${
-                                answers[q.id] === num
-                                  ? "bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-100 scale-105"
-                                  : "bg-white border-gray-50 text-gray-300 hover:border-gray-200"
+                              onClick={() => handleAnswerChange(q.id, true)}
+                              className={`flex-1 py-2.5 rounded-xl border-2 font-black text-xs transition-all ${
+                                answers[q.id] === true
+                                  ? "bg-red-500 border-red-500 text-white shadow-lg shadow-red-100"
+                                  : "bg-white border-gray-50 text-gray-400"
                               }`}
                             >
-                              {num}
+                              네
                             </button>
-                          ))}
-                        </div>
-                      )}
+                            <button
+                              onClick={() => handleAnswerChange(q.id, false)}
+                              className={`flex-1 py-2.5 rounded-xl border-2 font-black text-xs transition-all ${
+                                answers[q.id] === false
+                                  ? "bg-green-500 border-green-500 text-white shadow-lg shadow-green-100"
+                                  : "bg-white border-gray-50 text-gray-400"
+                              }`}
+                            >
+                              아니오
+                            </button>
+                          </div>
+                        )}
 
-                      {q.type === "yesno" && (
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => handleAnswerChange(q.id, true)}
-                            className={`flex-1 py-2.5 rounded-xl border-2 font-black text-xs transition-all ${
-                              answers[q.id] === true
-                                ? "bg-red-500 border-red-500 text-white shadow-lg shadow-red-100"
-                                : "bg-white border-gray-50 text-gray-400"
-                            }`}
-                          >
-                            네
-                          </button>
-                          <button
-                            onClick={() => handleAnswerChange(q.id, false)}
-                            className={`flex-1 py-2.5 rounded-xl border-2 font-black text-xs transition-all ${
-                              answers[q.id] === false
-                                ? "bg-green-500 border-green-500 text-white shadow-lg shadow-green-100"
-                                : "bg-white border-gray-50 text-gray-400"
-                            }`}
-                          >
-                            아니오
-                          </button>
-                        </div>
-                      )}
+                        {q.type === "multiselect" &&
+                          Array.isArray(q.options) && (
+                            <div className="flex flex-wrap gap-2">
+                              {q.options.map((opt: string) => {
+                                const current = answers[q.id] || [];
+                                const isSelected = current.includes(opt);
+                                return (
+                                  <button
+                                    key={opt}
+                                    onClick={() => {
+                                      const next = isSelected
+                                        ? current.filter(
+                                            (i: string) => i !== opt
+                                          )
+                                        : [...current, opt];
+                                      handleAnswerChange(q.id, next);
+                                    }}
+                                    className={`px-3 py-2 rounded-xl border-2 text-[11px] font-black transition-all ${
+                                      isSelected
+                                        ? "bg-gray-900 border-gray-900 text-white shadow-lg"
+                                        : "bg-white border-gray-50 text-gray-400 hover:border-gray-200"
+                                    }`}
+                                  >
+                                    {opt}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
 
-                      {q.type === "multiselect" && Array.isArray(q.options) && (
-                        <div className="flex flex-wrap gap-2">
-                          {q.options.map((opt: string) => {
-                            const current = answers[q.id] || [];
-                            const isSelected = current.includes(opt);
-                            return (
-                              <button
-                                key={opt}
-                                onClick={() => {
-                                  const next = isSelected
-                                    ? current.filter((i: string) => i !== opt)
-                                    : [...current, opt];
-                                  handleAnswerChange(q.id, next);
-                                }}
-                                className={`px-3 py-2 rounded-xl border-2 text-[11px] font-black transition-all ${
-                                  isSelected
-                                    ? "bg-gray-900 border-gray-900 text-white shadow-lg"
-                                    : "bg-white border-gray-50 text-gray-400 hover:border-gray-200"
-                                }`}
-                              >
-                                {opt}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
+                        {q.type === "select" && Array.isArray(q.options) && (
+                          <div className="flex flex-wrap gap-2">
+                            {q.options.map((opt: string) => {
+                              const isSelected = answers[q.id] === opt;
+                              return (
+                                <button
+                                  key={opt}
+                                  onClick={() => handleAnswerChange(q.id, opt)}
+                                  className={`px-3 py-2 rounded-xl border-2 text-[11px] font-black transition-all ${
+                                    isSelected
+                                      ? "bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-100"
+                                      : "bg-white border-gray-50 text-gray-400 hover:border-gray-200"
+                                  }`}
+                                >
+                                  {opt}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
 
-                      {q.type === "select" && Array.isArray(q.options) && (
-                        <div className="flex flex-wrap gap-2">
-                          {q.options.map((opt: string) => {
-                            const isSelected = answers[q.id] === opt;
-                            return (
-                              <button
-                                key={opt}
-                                onClick={() => handleAnswerChange(q.id, opt)}
-                                className={`px-3 py-2 rounded-xl border-2 text-[11px] font-black transition-all ${
-                                  isSelected
-                                    ? "bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-100"
-                                    : "bg-white border-gray-50 text-gray-400 hover:border-gray-200"
-                                }`}
-                              >
-                                {opt}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-
-                      {q.type === "text" && (
-                        <textarea
-                          value={answers[q.id] || ""}
-                          onChange={(e) =>
-                            handleAnswerChange(q.id, e.target.value)
-                          }
-                          className="w-full h-24 border-2 border-gray-50 rounded-2xl p-3 text-xs font-bold focus:ring-2 focus:ring-blue-100 focus:border-blue-300 focus:outline-none bg-gray-50 text-gray-700 transition-all"
-                          placeholder="Detailed notes..."
-                        />
-                      )}
-                    </div>
-                  ))}
+                        {q.type === "text" && (
+                          <textarea
+                            value={answers[q.id] || ""}
+                            onChange={(e) =>
+                              handleAnswerChange(q.id, e.target.value)
+                            }
+                            className="w-full h-24 border-2 border-gray-50 rounded-2xl p-3 text-xs font-bold focus:ring-2 focus:ring-blue-100 focus:border-blue-300 focus:outline-none bg-gray-50 text-gray-700 transition-all"
+                            placeholder="Detailed notes..."
+                          />
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        )}
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Footer / Link Add Section (Collapsed) */}
-      <div className="fixed md:absolute bottom-0 left-0 right-0 md:left-auto md:w-[420px] bg-white border-t border-gray-100 p-4 md:p-6 pt-4 flex flex-col gap-4 shadow-[0_-10px_30px_rgba(0,0,0,0.05)] z-40">
+      {/* Footer / Link Add Section */}
+      <div className="shrink-0 bg-white border-t border-gray-100 p-4 md:p-6 pb-8 md:pb-6 flex flex-col gap-4 shadow-[0_-10px_30px_rgba(0,0,0,0.05)] z-40">
         {showLinkInput ? (
           <div className="bg-gray-50 rounded-2xl p-4 space-y-3 border border-gray-100 overflow-hidden">
             <div className="space-y-2">
