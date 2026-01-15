@@ -260,8 +260,9 @@ export default function PlaceSheet({
               템플릿 불러오는 중...
             </p>
             <div className="p-4 bg-red-50 text-red-500 text-xs rounded-xl border border-red-100 text-left font-medium">
-              Prisma Client가 준비되지 않았습니다. 데브 서버를 중단하고 `npx
-              prisma generate`를 실행해 주세요.
+              템플릿을 불러올 수 없습니다. 데이터베이스 연결
+              설정(DATABASE_URL)이나 Prisma 클라이언트 생성이 완료되었는지
+              확인해 주세요.
             </div>
           </div>
         ) : (
