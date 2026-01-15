@@ -1,0 +1,85 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Place {
+  id           String         @id @default(uuid()) @db.Uuid
+  kakaoId      String         @unique @map("kakao_id")
+  name         String
+  lat          Float
+  lng          Float
+  address      String?
+  roadAddress  String?        @map("road_address")
+  createdAt    DateTime       @default(now()) @map("created_at")
+  favorites    Favorite?
+  notes        Note[]
+  externalLinks ExternalLink[]
+
+  @@map("places")
+}
+
+model Favorite {
+  id        String   @id @default(uuid()) @db.Uuid
+  placeId   String   @unique @map("place_id") @db.Uuid
+  place     Place    @relation(fields: [placeId], references: [id], onDelete: Cascade)
+  color     String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("favorites")
+}
+
+model Template {
+  id        String     @id @default(uuid()) @db.Uuid
+  title     String
+  questions Question[]
+  notes     Note[]
+  createdAt DateTime   @default(now()) @map("created_at")
+
+  @@map("templates")
+}
+
+model Question {
+  id         String   @id @default(uuid()) @db.Uuid
+  templateId String   @map("template_id") @db.Uuid
+  template   Template @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  text       String
+  type       String   // rating, yesno, multiselect, select, text
+  options    Json?    // For select/multiselect
+  orderIdx   Int      @default(0) @map("order_idx")
+  category   String?
+  isCritical Boolean  @default(false) @map("is_critical")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("template_questions")
+}
+
+model Note {
+  id         String    @id @default(uuid()) @db.Uuid
+  placeId    String    @map("place_id") @db.Uuid
+  place      Place     @relation(fields: [placeId], references: [id], onDelete: Cascade)
+  templateId String?   @map("template_id") @db.Uuid
+  template   Template? @relation(fields: [templateId], references: [id])
+  answers    Json      @default("{}")
+  evaluation String?
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  @@map("notes")
+}
+
+model ExternalLink {
+  id        String   @id @default(uuid()) @db.Uuid
+  placeId   String   @map("place_id") @db.Uuid
+  place     Place    @relation(fields: [placeId], references: [id], onDelete: Cascade)
+  title     String
+  url       String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("external_links")
+}
