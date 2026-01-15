@@ -14,8 +14,8 @@ export default function MapView({
   savedPlaces,
   onPlaceSelect,
 }: MapViewProps) {
-  console.log("test");
   const mapContainer = useRef<HTMLDivElement>(null);
+
   const mapInstance = useRef<any>(null); // kakao.maps.Map
   const selectedMarker = useRef<any>(null); // kakao.maps.Marker
   const savedMarkers = useRef<any[]>([]); // kakao.maps.CustomOverlay[] or Marker[]
@@ -29,7 +29,6 @@ export default function MapView({
     if (!window.kakao || !window.kakao.maps) {
       // Wait for SDK load if not ready (though layout script should handle it)
       const checkKakao = setInterval(() => {
-        console.log("test");
         if (window.kakao && window.kakao.maps) {
           clearInterval(checkKakao);
           initMap();
@@ -62,7 +61,6 @@ export default function MapView({
 
   // Handle Saved Places
   useEffect(() => {
-    console.log("Handle Saved Places");
     if (!isMapReady || !mapInstance.current || !savedPlaces) return;
 
     // Clear
@@ -112,7 +110,6 @@ export default function MapView({
 
   // Handle Selected Location
   useEffect(() => {
-    console.log("Handle Selected Location");
     if (!isMapReady || !mapInstance.current || !selectedLocation) return;
 
     const [lng, lat] = selectedLocation;

@@ -110,12 +110,12 @@ export default function PlaceSheet({
         await saveFavorite(savedPlace.id, selectedColor);
       }
       await saveNote(savedPlace.id, answers, template?.id);
-      alert("Appraisal Saved Successfully!");
+      alert("매물 평가 정보가 성공적으로 저장되었습니다!");
       onSave?.();
       getPlaceByKakaoId(place.id).then(setDbPlace);
     } catch (e: any) {
       console.error(e);
-      alert("Error saving: " + e.message);
+      alert("저장 중 오류가 발생했습니다: " + e.message);
     } finally {
       setLoading(false);
     }
