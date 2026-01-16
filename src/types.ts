@@ -31,6 +31,7 @@ export interface Favorite {
   id: string;
   placeId: string;
   color: string;
+  userId?: string | null;
   createdAt: Date;
 }
 
@@ -39,16 +40,61 @@ export interface ExternalLink {
   placeId: string;
   title: string;
   url: string;
+  userId?: string | null;
   createdAt: Date;
+}
+
+export interface Unit {
+  id: string;
+  placeId: string;
+  userId?: string | null;
+  label: string;
+  dong?: string | null;
+  line?: string | null;
+  ho?: string | null;
+  floor?: number | null;
+  direction?: string | null;
+  viewDesc?: string | null;
+  createdAt: Date;
+  notes?: Note[];
 }
 
 export interface Note {
   id: string;
-  placeId: string;
+  userId?: string | null;
+  placeId?: string | null;
+  unitId?: string | null;
+  templateId: string | null;
   answers: any;
   evaluation?: string | null;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface Question {
+  id: string;
+  templateId: string;
+  text: string;
+  type: string;
+  options?: any;
+  orderIdx: number;
+  category?: string | null;
+  criticalLevel: number;
+  isBad: boolean;
+  isActive: boolean;
+
+  required: boolean;
+  helpText?: string | null;
+  createdAt: Date;
+}
+
+export interface Template {
+  id: string;
+  title: string;
+  userId?: string | null;
+  scope: "PLACE" | "UNIT" | "BOTH";
+  questions?: Question[];
+  createdAt: Date;
 }
 
 export interface Place {
@@ -59,8 +105,10 @@ export interface Place {
   lng: number;
   address?: string | null;
   roadAddress?: string | null;
+  userId?: string | null;
   createdAt: Date;
   notes?: Note[];
-  favorites?: Favorite | null; // Prisma Favorite?
+  favorites?: Favorite | null;
   externalLinks?: ExternalLink[];
+  units?: Unit[];
 }

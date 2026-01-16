@@ -71,7 +71,7 @@ export default function MapView({
       const evaluation = place.notes?.[0]?.evaluation;
       let color = place.favorites?.color || "#6b7280";
       let filter = "";
-
+      console.log(place);
       if (evaluation === "FAIL") {
         color = "#9ca3af"; // Gray
         filter = "grayscale(1) opacity(0.6)";

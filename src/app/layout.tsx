@@ -13,10 +13,7 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-export const metadata: Metadata = {
-  title: "Real Estate Map",
-  description: "MVP",
-};
+import { Providers } from "@/components/Providers";
 
 export default function RootLayout({
   children,
@@ -32,7 +29,7 @@ export default function RootLayout({
           src={`//dapi.kakao.com/v2/maps/sdk.js?appkey=${process.env.NEXT_PUBLIC_KAKAO_API_KEY}&autoload=false&libraries=services,clusterer`}
           strategy="beforeInteractive"
         />
-        {children}
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

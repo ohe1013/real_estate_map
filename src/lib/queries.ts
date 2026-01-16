@@ -3,6 +3,7 @@
 import { prisma } from "./db";
 import { KakaoPlace, Place as MyPlaceType } from "@/types";
 import { supabase } from "./supabaseClient";
+import { auth } from "@/auth";
 
 // searchPlaces still uses Supabase Edge Function because it's already set up and works as a proxy
 export const searchPlaces = async (query: string) => {
@@ -16,8 +17,22 @@ export const searchPlaces = async (query: string) => {
 
 export async function getDefaultTemplate() {
   return await prisma.template.findFirst({
+    where: { scope: { in: ["BOTH", "PLACE"] } },
     include: {
       questions: {
+        where: { isActive: true },
+        orderBy: { orderIdx: "asc" },
+      },
+    },
+  });
+}
+
+export async function getTemplateByScope(scope: "PLACE" | "UNIT") {
+  return await prisma.template.findFirst({
+    where: { scope: { in: ["BOTH", scope] } },
+    include: {
+      questions: {
+        where: { isActive: true },
         orderBy: { orderIdx: "asc" },
       },
     },
@@ -26,58 +41,48 @@ export async function getDefaultTemplate() {
 
 /**
  * Calculates Pass/Hold/Fail based on answers
- * Logic:
- * 1. If any isCritical question is failed -> FAIL
- * 2. Average rating score -> PASS (>4), HOLD (2-4), FAIL (<2)
  */
 export async function calculateEvaluation(
   answers: Record<string, any>,
   questions: any[]
 ) {
-  let isFail = false;
   let totalScore = 0;
-  let ratingCount = 0;
 
   for (const q of questions) {
+    if (!q.isActive) continue;
     const ans = answers[q.id];
     if (ans === undefined || ans === null) continue;
 
-    // Critical Check
-    if (q.isCritical) {
-      if (q.type === "yesno" && ans === true) {
-        // Assuming TRUE means "Yes, it is noisy/bad" for some, but user said "치명적이면 탈락"
-        // For Q1 (rating), if > 3 -> Fail?
-        // Let's refine based on user hints: Q1(rating), Q2(yesno), Q3(multiselect), Q4(yesno)
-        // Q1-Q4 are noise related.
-      }
-      if (q.type === "rating" && ans >= 4) isFail = true; // Very noisy
-      if (q.type === "yesno" && ans === true) {
-        // For Q2 (Repeat noise), Q4 (Night noise), Q6 (Blocked view) etc.
-        // User: Q1~Q4 are Noise related. Q2, Q4 are yesno.
-        // If yes -> Fail.
-        isFail = true;
-      }
-      if (
-        q.type === "multiselect" &&
-        Array.isArray(ans) &&
-        ans.length > 0 &&
-        !ans.includes("없음")
-      ) {
-        isFail = true;
-      }
-    }
+    const multiplier = q.criticalLevel || 1;
+    let questionScore = 0;
 
     if (q.type === "rating") {
-      totalScore += ans;
-      ratingCount++;
+      // 1(-2), 2(-1), 3(0), 4(1), 5(2)
+      questionScore = (Number(ans) - 3) * multiplier;
+    } else if (q.type === "yesno") {
+      // Yes (2), No (-2), "-" (0)
+      if (ans === "Yes" || ans === true) questionScore = 2 * multiplier;
+      else if (ans === "No" || ans === false) questionScore = -2 * multiplier;
+      else if (ans === "-") questionScore = 0;
+    } else if (q.type === "multiselect") {
+      const options = Array.isArray(q.options) ? q.options : [];
+      const selected = Array.isArray(ans) ? ans : [];
+      if (options.length > 0) {
+        const ratio = selected.length / options.length;
+        if (q.isBad) {
+          questionScore = ratio * -2;
+        } else {
+          questionScore = ratio * 2;
+        }
+      }
     }
+
+    totalScore += questionScore;
   }
 
-  const avg = ratingCount > 0 ? totalScore / ratingCount : 3;
-
-  if (isFail) return "FAIL";
-  if (avg >= 3.5) return "PASS";
-  if (avg >= 2.5) return "HOLD";
+  console.log({ totalScore });
+  if (totalScore >= 3) return "PASS";
+  if (totalScore >= 0) return "HOLD";
   return "FAIL";
 }
 
@@ -110,8 +115,15 @@ export async function getPlaceByKakaoId(kakaoId: string): Promise<any> {
     where: { kakaoId },
     include: {
       favorites: true,
-      notes: true,
+      notes: {
+        where: { unitId: null }, // Only place-level notes here
+      },
       externalLinks: true,
+      units: {
+        include: {
+          notes: true,
+        },
+      },
     },
   });
 }
@@ -138,11 +150,20 @@ export async function saveExternalLink(
   });
 }
 
-export async function saveNote(
-  placeId: string,
-  answers: any,
-  templateId?: string
-) {
+/**
+ * Save appraisal note for Place or Unit
+ */
+export async function saveNote({
+  placeId,
+  unitId,
+  answers,
+  templateId,
+}: {
+  placeId?: string;
+  unitId?: string;
+  answers: any;
+  templateId?: string;
+}) {
   let evaluation: string | null = null;
 
   if (templateId) {
@@ -155,9 +176,9 @@ export async function saveNote(
     }
   }
 
-  const existing = await prisma.note.findFirst({
-    where: { placeId },
-  });
+  // Find existing note for this target
+  const where = unitId ? { unitId } : { placeId, unitId: null };
+  const existing = await prisma.note.findFirst({ where });
 
   if (existing) {
     return await prisma.note.update({
@@ -172,7 +193,8 @@ export async function saveNote(
   } else {
     return await prisma.note.create({
       data: {
-        placeId,
+        placeId: unitId ? null : placeId,
+        unitId,
         answers,
         templateId,
         evaluation,
@@ -186,10 +208,151 @@ export async function getUserPlaces(): Promise<any[]> {
     include: {
       favorites: true,
       notes: {
-        select: {
-          evaluation: true,
-        },
+        where: { unitId: null },
+        select: { evaluation: true },
       },
     },
+  });
+}
+
+// --- Unit Management ---
+
+export async function upsertUnit(data: {
+  placeId: string;
+  label: string;
+  dong?: string;
+  ho?: string;
+  floor?: number;
+  direction?: string;
+  viewDesc?: string;
+}) {
+  return await prisma.unit.upsert({
+    where: {
+      placeId_label: {
+        placeId: data.placeId,
+        label: data.label,
+      },
+    },
+    update: {
+      dong: data.dong,
+      ho: data.ho,
+      floor: data.floor,
+      direction: data.direction,
+      viewDesc: data.viewDesc,
+    },
+    create: data,
+  });
+}
+
+export async function getUnitsByPlace(placeId: string) {
+  return await prisma.unit.findMany({
+    where: { placeId },
+    include: {
+      notes: true,
+    },
+    orderBy: { label: "asc" },
+  });
+}
+
+// --- Template Management ---
+
+export async function getTemplates() {
+  const session = await auth();
+  const userId = session?.user?.id;
+
+  return await prisma.template.findMany({
+    where: {
+      OR: [
+        { userId: null },
+        userId
+          ? { userId }
+          : { userId: "00000000-0000-0000-0000-000000000000" }, // dummy uuid if no user
+      ],
+    },
+    include: {
+      questions: {
+        orderBy: { orderIdx: "asc" },
+      },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+}
+
+export async function saveTemplate(data: {
+  id?: string;
+  title: string;
+  scope: string;
+  questions: any[];
+}) {
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) throw new Error("Unauthorized");
+
+  if (data.id) {
+    // Check if it's the user's template
+    const existing = await prisma.template.findUnique({
+      where: { id: data.id },
+    });
+    if (existing?.userId !== userId) throw new Error("Permission denied");
+
+    // Update
+    return await prisma.template.update({
+      where: { id: data.id },
+      data: {
+        title: data.title,
+        scope: data.scope,
+        questions: {
+          deleteMany: {},
+          create: data.questions.map((q, idx) => ({
+            text: q.text,
+            type: q.type,
+            options: q.options,
+            orderIdx: idx,
+            category: q.category,
+            criticalLevel: q.criticalLevel,
+            isBad: q.isBad,
+            isActive: q.isActive ?? true,
+            helpText: q.helpText,
+          })),
+        },
+      },
+    });
+  } else {
+    // Create
+    return await prisma.template.create({
+      data: {
+        userId,
+        title: data.title,
+        scope: data.scope,
+        questions: {
+          create: data.questions.map((q, idx) => ({
+            text: q.text,
+            type: q.type,
+            options: q.options,
+            orderIdx: idx,
+            category: q.category,
+            criticalLevel: q.criticalLevel,
+            isBad: q.isBad,
+            isActive: q.isActive ?? true,
+            helpText: q.helpText,
+          })),
+        },
+      },
+    });
+  }
+}
+
+export async function deleteTemplate(id: string) {
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) throw new Error("Unauthorized");
+
+  const existing = await prisma.template.findUnique({
+    where: { id },
+  });
+  if (existing?.userId !== userId) throw new Error("Permission denied");
+
+  return await prisma.template.delete({
+    where: { id },
   });
 }
