@@ -216,10 +216,11 @@ export default function TemplateEditor({ onClose }: TemplateEditorProps) {
                             type="checkbox"
                             id={`critical-${q.id}`}
                             checked={q.isCritical}
-                            onChange={(e) =>
-                              handleUpdateQuestion(q.id, {
-                                isCritical: e.target.checked,
-                              })
+                            onChange={
+                              () => {}
+                              // handleUpdateQuestion(q.id, {
+                              //   isCritical: e.target.checked,
+                              // })
                             }
                             className="w-4 h-4 rounded border-gray-300 text-red-600 focus:ring-red-500"
                           />
