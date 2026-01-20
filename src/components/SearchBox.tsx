@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useRef } from "react";
-import { getSearchList } from "@/lib/kakaoSearch";
+import { getSearchList, getAddressSearch } from "@/lib/kakaoSearch";
 import { KakaoPlace } from "@/types";
 import { Search, Loader2 } from "lucide-react";
 import SuggestList from "./search/SuggestList";
@@ -40,18 +40,48 @@ export default function SearchBox({ onSelect }: SearchBoxProps) {
     setLoading(true);
     setResults([]);
 
+    let combinedResults: KakaoPlace[] = [];
+    let placesDone = false;
+    let addressDone = false;
+
+    const checkDone = () => {
+      if (placesDone && addressDone) {
+        setLoading(false);
+        // Deduplicate by id or address
+        const seen = new Set();
+        const deduped = combinedResults.filter((el) => {
+          const duplicate = seen.has(el.id) || seen.has(el.address_name);
+          seen.add(el.id);
+          seen.add(el.address_name);
+          return !duplicate;
+        });
+        setResults(deduped);
+      }
+    };
+
+    // 1. Keyword Search
     getSearchList({
       keyword: searchKeyword,
-      mapInstance: null, // MVP: Global search or sort by distance if possible
+      mapInstance: null,
       onResults: (data, status) => {
-        setLoading(false);
         if (window.kakao && status === window.kakao.maps.services.Status.OK) {
-          // data types match KakaoPlace mostly
-          setResults(data as unknown as KakaoPlace[]);
-        } else {
-          setResults([]);
+          combinedResults = [
+            ...combinedResults,
+            ...(data as unknown as KakaoPlace[]),
+          ];
         }
+        placesDone = true;
+        checkDone();
       },
+    });
+
+    // 2. Address Search
+    getAddressSearch(searchKeyword, (data: any[], status: any) => {
+      if (window.kakao && status === window.kakao.maps.services.Status.OK) {
+        combinedResults = [...combinedResults, ...data];
+      }
+      addressDone = true;
+      checkDone();
     });
   };
 
@@ -97,12 +127,17 @@ export default function SearchBox({ onSelect }: SearchBoxProps) {
           results={results}
           active={isFocused}
           onSelect={handlePlaceSelect}
+          keyword={keyword}
         />
       )}
 
       {/* Result List (SearchList can be used as a fallback or for a persistent sidebar, but here we merge under input) */}
       {!isFocused && results.length > 0 && (
-        <SearchList results={results} onSelect={handlePlaceSelect} />
+        <SearchList
+          results={results}
+          onSelect={handlePlaceSelect}
+          keyword={keyword}
+        />
       )}
     </div>
   );

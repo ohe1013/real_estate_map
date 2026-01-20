@@ -47,3 +47,29 @@ export const getSearchList = ({
 
   ps.keywordSearch(keyword, onResults, options);
 };
+
+export const getAddressSearch = (
+  keyword: string,
+  onResults: (data: any[], status: any) => void
+) => {
+  if (!window.kakao || !window.kakao.maps) return;
+
+  const geocoder = new window.kakao.maps.services.Geocoder();
+  geocoder.addressSearch(keyword, (data: any[], status: any) => {
+    // Convert Geocoder results to match KakaoPlace structure as much as possible
+    const formattedData = data.map((item: any) => ({
+      id: item.address_name, // Geocoder doesn't provide a unique ID like Places
+      place_name: item.road_address?.address_name || item.address_name,
+      address_name: item.address_name,
+      road_address_name: item.road_address?.address_name || "",
+      x: item.x,
+      y: item.y,
+      category_name: "주소", // Identify as address
+      category_group_name: "",
+      phone: "",
+      place_url: "",
+      distance: "",
+    }));
+    onResults(formattedData, status);
+  });
+};

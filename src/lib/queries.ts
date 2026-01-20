@@ -17,7 +17,10 @@ export const searchPlaces = async (query: string) => {
 
 export async function getDefaultTemplate() {
   return await prisma.template.findFirst({
-    where: { scope: { in: ["BOTH", "PLACE"] } },
+    where: {
+      userId: null,
+      scope: { in: ["BOTH", "PLACE"] },
+    },
     include: {
       questions: {
         where: { isActive: true },
@@ -28,14 +31,21 @@ export async function getDefaultTemplate() {
 }
 
 export async function getTemplateByScope(scope: "PLACE" | "UNIT") {
+  const session = await auth();
+  const userId = session?.user?.id;
+
   return await prisma.template.findFirst({
-    where: { scope: { in: ["BOTH", scope] } },
+    where: {
+      OR: [{ userId: null }, userId ? { userId } : { id: "never" }],
+      scope: { in: ["BOTH", scope] },
+    },
     include: {
       questions: {
         where: { isActive: true },
         orderBy: { orderIdx: "asc" },
       },
     },
+    orderBy: { userId: "desc" }, // Prioritize user-specific over null
   });
 }
 
@@ -87,11 +97,28 @@ export async function calculateEvaluation(
 }
 
 export async function upsertPlace(kakaoPlace: KakaoPlace): Promise<any> {
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) throw new Error("Unauthorized");
+
+  // DB 리셋 등으로 인해 세션은 있으나 실제 유저 레코드가 없을 수 있음
+  const userExists = await prisma.user.count({ where: { id: userId } });
+  if (userExists === 0) {
+    throw new Error(
+      "세션 정보가 유효하지 않습니다. 로그아웃 후 다시 로그인해 주세요."
+    );
+  }
+
   const lat = parseFloat(kakaoPlace.y);
   const lng = parseFloat(kakaoPlace.x);
 
   return await prisma.place.upsert({
-    where: { kakaoId: kakaoPlace.id },
+    where: {
+      userId_kakaoId: {
+        userId,
+        kakaoId: kakaoPlace.id,
+      },
+    },
     update: {
       name: kakaoPlace.place_name,
       lat,
@@ -100,6 +127,7 @@ export async function upsertPlace(kakaoPlace: KakaoPlace): Promise<any> {
       roadAddress: kakaoPlace.road_address_name,
     },
     create: {
+      userId,
       kakaoId: kakaoPlace.id,
       name: kakaoPlace.place_name,
       lat,
@@ -111,17 +139,31 @@ export async function upsertPlace(kakaoPlace: KakaoPlace): Promise<any> {
 }
 
 export async function getPlaceByKakaoId(kakaoId: string): Promise<any> {
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) return null;
+
   return await prisma.place.findUnique({
-    where: { kakaoId },
+    where: {
+      userId_kakaoId: {
+        userId,
+        kakaoId,
+      },
+    },
     include: {
       favorites: true,
       notes: {
-        where: { unitId: null }, // Only place-level notes here
+        where: { unitId: null, userId }, // Only place-level notes for this user
       },
-      externalLinks: true,
+      externalLinks: {
+        where: { userId },
+      },
       units: {
+        where: { userId },
         include: {
-          notes: true,
+          notes: {
+            where: { userId },
+          },
         },
       },
     },
@@ -129,10 +171,19 @@ export async function getPlaceByKakaoId(kakaoId: string): Promise<any> {
 }
 
 export async function saveFavorite(placeId: string, color: string) {
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) throw new Error("Unauthorized");
+
   return await prisma.favorite.upsert({
-    where: { placeId },
+    where: {
+      userId_placeId: {
+        userId,
+        placeId,
+      },
+    },
     update: { color },
-    create: { placeId, color },
+    create: { userId, placeId, color },
   });
 }
 
@@ -141,8 +192,13 @@ export async function saveExternalLink(
   title: string,
   url: string
 ) {
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) throw new Error("Unauthorized");
+
   return await prisma.externalLink.create({
     data: {
+      userId,
       placeId,
       title,
       url,
@@ -164,6 +220,10 @@ export async function saveNote({
   answers: any;
   templateId?: string;
 }) {
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) throw new Error("Unauthorized");
+
   let evaluation: string | null = null;
 
   if (templateId) {
@@ -176,8 +236,9 @@ export async function saveNote({
     }
   }
 
-  // Find existing note for this target
-  const where = unitId ? { unitId } : { placeId, unitId: null };
+  // Find existing note for this target AND user
+  const where = unitId ? { unitId, userId } : { placeId, unitId: null, userId };
+
   const existing = await prisma.note.findFirst({ where });
 
   if (existing) {
@@ -193,6 +254,7 @@ export async function saveNote({
   } else {
     return await prisma.note.create({
       data: {
+        userId,
         placeId: unitId ? null : placeId,
         unitId,
         answers,
@@ -204,11 +266,18 @@ export async function saveNote({
 }
 
 export async function getUserPlaces(): Promise<any[]> {
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) return [];
+
   return await prisma.place.findMany({
+    where: { userId },
     include: {
-      favorites: true,
+      favorites: {
+        where: { userId },
+      },
       notes: {
-        where: { unitId: null },
+        where: { unitId: null, userId },
         select: { evaluation: true },
       },
     },
@@ -226,6 +295,10 @@ export async function upsertUnit(data: {
   direction?: string;
   viewDesc?: string;
 }) {
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) throw new Error("Unauthorized");
+
   return await prisma.unit.upsert({
     where: {
       placeId_label: {
@@ -240,15 +313,24 @@ export async function upsertUnit(data: {
       direction: data.direction,
       viewDesc: data.viewDesc,
     },
-    create: data,
+    create: {
+      ...data,
+      userId,
+    },
   });
 }
 
 export async function getUnitsByPlace(placeId: string) {
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) return [];
+
   return await prisma.unit.findMany({
-    where: { placeId },
+    where: { placeId, userId },
     include: {
-      notes: true,
+      notes: {
+        where: { userId },
+      },
     },
     orderBy: { label: "asc" },
   });
@@ -353,6 +435,50 @@ export async function deleteTemplate(id: string) {
   if (existing?.userId !== userId) throw new Error("Permission denied");
 
   return await prisma.template.delete({
+    where: { id },
+  });
+}
+
+export async function deletePlace(id: string) {
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) throw new Error("Unauthorized");
+
+  const existing = await prisma.place.findUnique({
+    where: { id },
+  });
+
+  if (!existing) return;
+
+  // Note: Place might not have a userId if it's "global" but currently we link them.
+  // If we want to allow deleting any place that the user has saved:
+  // We should check if the user has a "note" or "favorite" on this place.
+  // For simplicity, let's assume the user can delete it if it's in the system and they are logged in.
+  // In a multi-user environment, we'd only let them delete "their" link to it.
+  // But our schema has Place.userId.
+
+  if (existing.userId && existing.userId !== userId)
+    throw new Error("Permission denied");
+
+  return await prisma.place.delete({
+    where: { id },
+  });
+}
+
+export async function deleteUnit(id: string) {
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) throw new Error("Unauthorized");
+
+  const existing = await prisma.unit.findUnique({
+    where: { id },
+  });
+
+  if (!existing) return;
+  if (existing.userId && existing.userId !== userId)
+    throw new Error("Permission denied");
+
+  return await prisma.unit.delete({
     where: { id },
   });
 }

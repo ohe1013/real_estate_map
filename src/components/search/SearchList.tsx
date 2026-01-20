@@ -1,16 +1,38 @@
 import { KakaoPlace } from "@/types";
-import { MapPin } from "lucide-react";
+import { MapPin, Plus } from "lucide-react";
 
 interface SearchListProps {
   results: KakaoPlace[];
   onSelect: (place: KakaoPlace) => void;
+  keyword?: string;
 }
 
-export default function SearchList({ results, onSelect }: SearchListProps) {
-  if (results.length === 0) return null;
+export default function SearchList({
+  results,
+  onSelect,
+  keyword,
+}: SearchListProps) {
+  const handleManualRegister = () => {
+    // Create a dummy place for manual registration
+    const manualPlace: KakaoPlace = {
+      id: "manual-" + Date.now(),
+      place_name: keyword || "새 장소",
+      address_name: "직접 등록한 장소",
+      road_address_name: "",
+      x: "0",
+      y: "0",
+      category_name: "Manual",
+      category_group_code: "",
+      category_group_name: "",
+      phone: "",
+      place_url: "",
+      distance: "",
+    };
+    onSelect(manualPlace);
+  };
 
   return (
-    <div className="absolute top-full left-0 w-full mt-2 bg-white rounded-lg shadow-lg max-h-[60vh] overflow-y-auto border border-gray-200 z-10">
+    <div className="absolute top-full left-0 w-full mt-2 bg-white rounded-lg shadow-lg max-h-[60vh] overflow-y-auto border border-gray-200 z-10 transition-all">
       <ul>
         {results.map((place, idx) => (
           <li key={place.id + idx}>
@@ -32,16 +54,30 @@ export default function SearchList({ results, onSelect }: SearchListProps) {
                   <p className="text-xs text-gray-500 mt-0.5">
                     {place.road_address_name || place.address_name}
                   </p>
-                  {place.phone && (
-                    <p className="text-xs text-gray-400 mt-0.5">
-                      {place.phone}
-                    </p>
-                  )}
                 </div>
               </div>
             </button>
           </li>
         ))}
+        {/* Manual registration button */}
+        <li>
+          <button
+            onClick={handleManualRegister}
+            className="w-full text-left px-5 py-4 hover:bg-blue-50 transition-colors border-t border-blue-100 flex items-center gap-3 group"
+          >
+            <div className="bg-blue-100 p-2 rounded-full group-hover:bg-blue-200 transition-colors">
+              <Plus className="w-4 h-4 text-blue-600" />
+            </div>
+            <div>
+              <div className="text-sm font-bold text-blue-600">
+                '{keyword}' 위치 직접 등록하기
+              </div>
+              <div className="text-[10px] text-blue-400 mt-0.5">
+                검색 결과에 없다면 직접 위치를 지정하세요
+              </div>
+            </div>
+          </button>
+        </li>
       </ul>
     </div>
   );

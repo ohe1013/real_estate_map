@@ -2,7 +2,13 @@
 import React, { useState } from "react";
 import { signUpUser } from "@/lib/auth-actions";
 import { signIn } from "next-auth/react";
-import { UserPlus, ArrowLeft, Loader2 } from "lucide-react";
+import {
+  UserPlus,
+  ArrowLeft,
+  Loader2,
+  MessageCircle,
+  Chrome,
+} from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -65,6 +71,30 @@ export default function SignUpPage() {
           <p className="text-sm font-bold text-gray-400 uppercase tracking-widest">
             Create your account
           </p>
+        </div>
+
+        <div className="space-y-3 mb-8">
+          <button
+            onClick={() => signIn("kakao", { callbackUrl: "/" })}
+            className="w-full bg-[#FEE500] text-[#191919] py-3.5 rounded-2xl font-black text-xs flex items-center justify-center gap-3 hover:bg-[#FADA0A] transition-all active:scale-[0.98]"
+          >
+            <MessageCircle className="w-4 h-4 fill-current" /> 카카오로 시작하기
+          </button>
+          <button
+            onClick={() => signIn("google", { callbackUrl: "/" })}
+            className="w-full bg-white border-2 border-gray-100 text-gray-700 py-3.5 rounded-2xl font-black text-xs flex items-center justify-center gap-3 hover:bg-gray-50 transition-all active:scale-[0.98]"
+          >
+            <Chrome className="w-4 h-4" /> 구글로 시작하기
+          </button>
+        </div>
+
+        <div className="relative mb-8">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-gray-100" />
+          </div>
+          <div className="relative flex justify-center text-[10px] uppercase font-black tracking-widest">
+            <span className="bg-white px-4 text-gray-300">OR</span>
+          </div>
         </div>
 
         <form onSubmit={handleSignUp} className="space-y-4">

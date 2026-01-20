@@ -60,6 +60,8 @@ export default function Home() {
     handlePlaceSelect(kp);
   };
   console.log(session);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+
   return (
     <main className="relative w-screen h-screen overflow-hidden">
       <SearchBox onSelect={handlePlaceSelect} />
@@ -70,15 +72,50 @@ export default function Home() {
         onPlaceSelect={handleSavedPlaceClick}
       />
 
-      {/* Top Right Actions */}
-      <div className="fixed top-4 right-4 z-10 flex flex-col gap-3">
+      {/* User Actions - Toggleable Menu */}
+      <div className="fixed bottom-6 right-6 z-10 flex flex-col items-end gap-3 group">
         {session ? (
-          <>
-            <div className="flex items-center gap-2 bg-white/90 backdrop-blur-md p-1.5 pl-4 pr-1.5 rounded-2xl shadow-xl border border-white/20">
+          <div className="relative flex flex-col items-end gap-3">
+            {/* Toggleable Menu Items */}
+            <div
+              className={`flex flex-col gap-2 transition-all duration-300 origin-bottom ${
+                isMenuOpen
+                  ? "opacity-100 scale-100 translate-y-0"
+                  : "opacity-0 scale-90 translate-y-4 pointer-events-none"
+              }`}
+            >
+              <button
+                onClick={() => {
+                  setShowTemplateManager(true);
+                  setIsMenuOpen(false);
+                }}
+                className="flex items-center gap-3 bg-white/90 backdrop-blur-md p-3 px-5 rounded-2xl shadow-xl border border-white/20 text-gray-700 hover:text-blue-600 transition-all hover:pr-8 group/item"
+              >
+                <Settings className="w-5 h-5 group-hover/item:rotate-45 transition-transform duration-500" />
+                <span className="text-sm font-bold">템플릿 설정</span>
+              </button>
+              <button
+                onClick={() => signOut()}
+                className="flex items-center gap-3 bg-white/90 backdrop-blur-md p-3 px-5 rounded-2xl shadow-xl border border-white/20 text-gray-700 hover:text-red-500 transition-all hover:pr-8"
+              >
+                <LogOut className="w-5 h-5" />
+                <span className="text-sm font-bold">로그아웃</span>
+              </button>
+            </div>
+
+            {/* User Profile Button (Toggle) */}
+            <button
+              onClick={() => setIsMenuOpen(!isMenuOpen)}
+              className={`flex items-center gap-2 bg-white/90 backdrop-blur-md p-1.5 pl-4 pr-1.5 rounded-2xl shadow-2xl border transition-all active:scale-95 ${
+                isMenuOpen
+                  ? "border-blue-500 ring-4 ring-blue-500/10"
+                  : "border-white/20"
+              }`}
+            >
               <span className="text-xs font-black text-gray-700">
                 {session.user?.name || session.user?.email}
               </span>
-              <div className="w-8 h-8 rounded-xl bg-blue-600 flex items-center justify-center text-white">
+              <div className="w-8 h-8 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-inner">
                 {session.user?.image ? (
                   <img
                     loading="lazy"
@@ -89,25 +126,8 @@ export default function Home() {
                   <UserIcon className="w-4 h-4" />
                 )}
               </div>
-            </div>
-
-            <div className="flex gap-2 justify-end">
-              <button
-                onClick={() => setShowTemplateManager(true)}
-                className="bg-white/80 backdrop-blur-md p-3 rounded-2xl shadow-xl border border-white/20 text-gray-700 hover:text-blue-600 transition-all active:scale-95 group"
-                title="Templates"
-              >
-                <Settings className="w-5 h-5 group-hover:rotate-45 transition-transform duration-500" />
-              </button>
-              <button
-                onClick={() => signOut()}
-                className="bg-white/80 backdrop-blur-md p-3 rounded-2xl shadow-xl border border-white/20 text-gray-700 hover:text-red-500 transition-all active:scale-95"
-                title="Logout"
-              >
-                <LogOut className="w-5 h-5" />
-              </button>
-            </div>
-          </>
+            </button>
+          </div>
         ) : (
           <a
             href="/auth/signin"

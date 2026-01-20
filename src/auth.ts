@@ -15,7 +15,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
     Kakao({
       clientId: process.env.AUTH_KAKAO_ID,
-      clientSecret: process.env.AUTH_KAKAO_SECRET,
+      clientSecret: "clientSecret",
+      // checks: ["pkce", "state"], // 명시
+      allowDangerousEmailAccountLinking: true,
     }),
     Credentials({
       name: "Credentials",

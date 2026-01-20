@@ -21,6 +21,7 @@ export default function TemplateManager({ onClose }: TemplateManagerProps) {
   const [activeTemplate, setActiveTemplate] = useState<Template | null>(null);
   const [loading, setLoading] = useState(false);
   const [editingQuestions, setEditingQuestions] = useState<Question[]>([]);
+  const [isMobileList, setIsMobileList] = useState(true);
 
   useEffect(() => {
     loadTemplates();
@@ -46,6 +47,7 @@ export default function TemplateManager({ onClose }: TemplateManagerProps) {
   const selectTemplate = (t: Template) => {
     setActiveTemplate(t);
     setEditingQuestions(t.questions?.map((q) => ({ ...q })) || []);
+    setIsMobileList(false);
   };
 
   const handleCreateNew = () => {
@@ -123,8 +125,8 @@ export default function TemplateManager({ onClose }: TemplateManagerProps) {
   const isReadOnly = !!(activeTemplate?.id && !activeTemplate.userId);
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-      <div className="bg-white w-full max-w-4xl h-[90vh] rounded-3xl overflow-hidden flex flex-col shadow-2xl">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center md:p-4">
+      <div className="bg-white w-full max-w-4xl h-full md:h-[90vh] md:rounded-3xl overflow-hidden flex flex-col shadow-2xl">
         {/* Header */}
         <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
           <div>
@@ -133,17 +135,33 @@ export default function TemplateManager({ onClose }: TemplateManagerProps) {
               Template Management
             </p>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-white rounded-full transition-colors border border-transparent hover:border-gray-200"
-          >
-            <X className="w-6 h-6 text-gray-400" />
-          </button>
+          <div className="flex items-center gap-2">
+            {!isMobileList && (
+              <button
+                onClick={() => setIsMobileList(true)}
+                className="md:hidden px-4 py-2 bg-gray-100 text-gray-600 text-[10px] font-black rounded-xl hover:bg-gray-200"
+              >
+                목록으로
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="p-2 hover:bg-white rounded-full transition-colors border border-transparent hover:border-gray-200"
+            >
+              <X className="w-6 h-6 text-gray-400" />
+            </button>
+          </div>
         </div>
 
-        <div className="flex-1 flex overflow-hidden">
+        <div className="flex-1 flex overflow-hidden relative">
           {/* Sidebar */}
-          <div className="w-64 border-r border-gray-100 flex flex-col bg-gray-50/30">
+          <div
+            className={`w-full md:w-64 border-r border-gray-100 flex flex-col bg-gray-50/30 absolute inset-0 md:relative z-10 transition-transform duration-300 md:translate-x-0 ${
+              isMobileList
+                ? "translate-x-0"
+                : "-translate-x-full md:translate-x-0"
+            }`}
+          >
             <div className="p-4 flex-1 overflow-y-auto space-y-2">
               <button
                 onClick={handleCreateNew}
@@ -179,11 +197,17 @@ export default function TemplateManager({ onClose }: TemplateManagerProps) {
           </div>
 
           {/* Editor */}
-          <div className="flex-1 p-8 overflow-y-auto bg-white">
+          <div
+            className={`flex-1 p-4 md:p-8 overflow-y-auto bg-white transition-opacity duration-300 ${
+              isMobileList
+                ? "opacity-0 md:opacity-100 pointer-events-none md:pointer-events-auto"
+                : "opacity-100"
+            }`}
+          >
             {activeTemplate ? (
-              <div className="space-y-8 max-w-2xl mx-auto">
+              <div className="space-y-6 md:space-y-8 max-w-2xl mx-auto">
                 {/* Meta Info */}
-                <div className="grid grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
                   <div className="space-y-2">
                     <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest">
                       템플릿 제목
@@ -243,14 +267,14 @@ export default function TemplateManager({ onClose }: TemplateManagerProps) {
                     {editingQuestions.map((q, idx) => (
                       <div
                         key={q.id}
-                        className="bg-gray-50 rounded-2xl p-6 border-2 border-gray-100 hover:border-gray-200 transition-all space-y-4 relative group"
+                        className="bg-gray-50 rounded-2xl p-4 md:p-6 border-2 border-gray-100 hover:border-gray-200 transition-all space-y-4 relative group"
                       >
-                        <div className="flex gap-3">
+                        <div className="flex flex-col md:flex-row gap-3">
                           <input
                             type="text"
                             disabled={isReadOnly}
                             placeholder="분류 (예: 단지 환경, 세대 내부)"
-                            className="w-40 bg-white border border-gray-200 p-3 rounded-xl text-xs font-bold outline-none focus:border-blue-300 disabled:opacity-50"
+                            className="w-full md:w-40 bg-white border border-gray-200 p-3 rounded-xl text-xs font-bold outline-none focus:border-blue-300 disabled:opacity-50"
                             value={q.category || ""}
                             onChange={(e) =>
                               handleQuestionChange(
@@ -270,27 +294,33 @@ export default function TemplateManager({ onClose }: TemplateManagerProps) {
                               handleQuestionChange(idx, "text", e.target.value)
                             }
                           />
-                          <select
-                            disabled={!!isReadOnly}
-                            className="w-32 bg-white border border-gray-200 px-3 rounded-xl text-xs font-bold outline-none focus:border-blue-300 disabled:opacity-50 cursor-pointer"
-                            value={q.type}
-                            onChange={(e) =>
-                              handleQuestionChange(idx, "type", e.target.value)
-                            }
-                          >
-                            <option value="rating">점수 (1-5)</option>
-                            <option value="yesno">예/아니오</option>
-                            <option value="multiselect">다중 선택</option>
-                            <option value="text">자유 입력</option>
-                          </select>
-                          {!isReadOnly && (
-                            <button
-                              onClick={() => handleRemoveQuestion(idx)}
-                              className="p-3 text-red-400 hover:bg-red-50 rounded-xl transition-all"
+                          <div className="flex gap-3">
+                            <select
+                              disabled={!!isReadOnly}
+                              className="flex-1 md:w-32 bg-white border border-gray-200 px-3 py-3 rounded-xl text-xs font-bold outline-none focus:border-blue-300 disabled:opacity-50 cursor-pointer appearance-none"
+                              value={q.type}
+                              onChange={(e) =>
+                                handleQuestionChange(
+                                  idx,
+                                  "type",
+                                  e.target.value
+                                )
+                              }
                             >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
+                              <option value="rating">점수 (1-5)</option>
+                              <option value="yesno">예/아니오</option>
+                              <option value="multiselect">다중 선택</option>
+                              <option value="text">자유 입력</option>
+                            </select>
+                            {!isReadOnly && (
+                              <button
+                                onClick={() => handleRemoveQuestion(idx)}
+                                className="p-3 text-red-400 hover:bg-red-50 rounded-xl transition-all"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
                         </div>
 
                         <div className="flex flex-wrap gap-x-6 gap-y-4 items-center pt-2">
@@ -433,23 +463,23 @@ export default function TemplateManager({ onClose }: TemplateManagerProps) {
         </div>
 
         {/* Footer */}
-        <div className="p-6 bg-gray-50 border-t border-gray-100 flex justify-between items-center shrink-0">
-          <div className="flex gap-3">
+        <div className="p-4 md:p-6 bg-gray-50 border-t border-gray-100 flex flex-col md:flex-row justify-between items-center shrink-0 gap-4 md:gap-0">
+          <div className="flex w-full md:w-auto gap-3">
             {activeTemplate?.id && !isReadOnly && (
               <button
                 onClick={handleDelete}
                 disabled={loading}
-                className="px-6 py-3.5 rounded-2xl bg-white border-2 border-red-50 text-red-500 text-xs font-black hover:bg-red-50 transition-all flex items-center gap-2 group shadow-sm active:scale-[0.98]"
+                className="flex-1 md:flex-none justify-center px-6 py-3.5 rounded-2xl bg-white border-2 border-red-50 text-red-500 text-xs font-black hover:bg-red-50 transition-all flex items-center gap-2 group shadow-sm active:scale-[0.98]"
               >
                 <Trash2 className="w-4 h-4 group-hover:scale-110 transition-transform" />{" "}
                 템플릿 삭제
               </button>
             )}
           </div>
-          <div className="flex gap-3">
+          <div className="flex w-full md:w-auto gap-3">
             <button
               onClick={onClose}
-              className="px-8 py-3.5 rounded-2xl bg-white border-2 border-gray-100 text-gray-400 text-xs font-black hover:bg-gray-100 transition-all"
+              className="flex-1 md:flex-none px-8 py-3.5 rounded-2xl bg-white border-2 border-gray-100 text-gray-400 text-xs font-black hover:bg-gray-100 transition-all"
             >
               취소
             </button>
@@ -457,10 +487,12 @@ export default function TemplateManager({ onClose }: TemplateManagerProps) {
               <button
                 onClick={handleSave}
                 disabled={loading}
-                className="px-12 py-3.5 rounded-2xl bg-blue-600 text-white text-xs font-black shadow-xl shadow-blue-100 hover:bg-blue-500 transition-all flex items-center gap-2 active:scale-[0.98] disabled:opacity-50"
+                className="flex-[2] md:flex-none justify-center px-12 py-3.5 rounded-2xl bg-blue-600 text-white text-xs font-black shadow-xl shadow-blue-100 hover:bg-blue-500 transition-all flex items-center gap-2 active:scale-[0.98] disabled:opacity-50"
               >
                 <Save className="w-4 h-4" />{" "}
-                {loading ? "저장 중..." : "설정 저장하기"}
+                <span className="md:inline">
+                  {loading ? "저장 중..." : "설정 저장하기"}
+                </span>
               </button>
             )}
           </div>

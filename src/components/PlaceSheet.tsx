@@ -10,6 +10,8 @@ import {
   getTemplates,
   upsertUnit,
   getUnitsByPlace,
+  deletePlace,
+  deleteUnit,
 } from "@/lib/queries";
 import { Template } from "@/types";
 
@@ -27,6 +29,7 @@ import {
   Building2,
   ChevronRight,
   ArrowLeft,
+  Trash2,
 } from "lucide-react";
 
 interface PlaceSheetProps {
@@ -202,6 +205,40 @@ export default function PlaceSheet({
     }
   };
 
+  const handleDeletePlace = async () => {
+    if (!dbPlace) return;
+    if (!confirm("이 단지의 모든 평가 기록과 정보를 삭제하시겠습니까?")) return;
+    setLoading(true);
+    try {
+      await deletePlace(dbPlace.id);
+      alert("삭제되었습니다.");
+      onClose();
+      onSave?.();
+    } catch (e: any) {
+      alert("삭제 중 오류 발생: " + e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteUnit = async (unitId: string) => {
+    if (!confirm("이 세대 기록을 삭제하시겠습니까?")) return;
+    setLoading(true);
+    try {
+      await deleteUnit(unitId);
+      setUnits((prev) => prev.filter((u) => u.id !== unitId));
+      if (activeUnit?.id === unitId) {
+        setActiveUnit(null);
+        setView("UNITS");
+      }
+      alert("삭제되었습니다.");
+    } catch (e: any) {
+      alert("삭제 중 오류 발생: " + e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (!place) return null;
 
   const categories: Record<string, any[]> = {};
@@ -324,7 +361,7 @@ export default function PlaceSheet({
                   rel="noreferrer"
                   className="flex items-center gap-1.5 text-[11px] font-black bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg border border-indigo-100 hover:bg-indigo-100 transition-colors"
                 >
-                  <ExternalLink className="w-3 h-3" /> HOGANGNONO
+                  <ExternalLink className="w-3 h-3" /> 호갱노노
                 </a>
                 <a
                   href={`https://m.land.naver.com/search/result/${encodeURIComponent(
@@ -334,7 +371,7 @@ export default function PlaceSheet({
                   rel="noreferrer"
                   className="flex items-center gap-1.5 text-[11px] font-black bg-green-50 text-green-700 px-3 py-1.5 rounded-lg border border-green-100 hover:bg-green-100 transition-colors"
                 >
-                  <ExternalLink className="w-3 h-3" /> NAVER LAND
+                  <ExternalLink className="w-3 h-3" /> 네이버
                 </a>
                 {dbPlace?.externalLinks?.map((link) => (
                   <a
@@ -380,6 +417,18 @@ export default function PlaceSheet({
                   </button>
                 </div>
               </div>
+
+              {/* Delete Place Button */}
+              {dbPlace && (
+                <div className="pt-4 border-t border-gray-50">
+                  <button
+                    onClick={handleDeletePlace}
+                    className="flex items-center gap-2 text-[11px] font-black text-red-400 hover:text-red-600 transition-colors uppercase tracking-widest pl-1"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> 단지 정보 전체 삭제
+                  </button>
+                </div>
+              )}
 
               {/* Appraisal Section */}
               {renderAppraisal()}
@@ -464,7 +513,18 @@ export default function PlaceSheet({
                             </span>
                           </div>
                         </div>
-                        <ChevronRight className="w-4 h-4 text-gray-300" />
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteUnit(unit.id);
+                            }}
+                            className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                          <ChevronRight className="w-4 h-4 text-gray-300" />
+                        </div>
                       </button>
                     );
                   })
@@ -542,7 +602,13 @@ export default function PlaceSheet({
   );
 
   function renderAppraisal() {
-    if (!template)
+    const currentScope = view === "UNIT_DETAIL" ? "UNIT" : "PLACE";
+    const filtered = availableTemplates.filter(
+      (t) => t.scope === "BOTH" || t.scope === currentScope
+    );
+
+    if (!template) {
+      if (filtered.length === 0) return null; // No templates for this scope, hide section
       return (
         <div className="py-10 text-center space-y-3">
           <div className="animate-spin w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full mx-auto" />
@@ -551,6 +617,7 @@ export default function PlaceSheet({
           </p>
         </div>
       );
+    }
 
     const categories = (template.questions || []).reduce((acc: any, q: any) => {
       const cat = q.category || "기본 항목";
@@ -558,11 +625,6 @@ export default function PlaceSheet({
       acc[cat].push(q);
       return acc;
     }, {});
-
-    const currentScope = view === "UNIT_DETAIL" ? "UNIT" : "PLACE";
-    const filtered = availableTemplates.filter(
-      (t) => t.scope === "BOTH" || t.scope === currentScope
-    );
 
     return (
       <div className="space-y-8 pb-20">
