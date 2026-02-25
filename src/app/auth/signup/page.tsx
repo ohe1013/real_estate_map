@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 import React, { useState } from "react";
 import { signUpUser } from "@/lib/auth-actions";
 import { signIn } from "next-auth/react";
@@ -28,7 +28,12 @@ export default function SignUpPage() {
       formData.append("password", password);
       formData.append("name", name);
 
-      await signUpUser(formData);
+      const resultSignup = await signUpUser(formData);
+
+      if (!resultSignup.success) {
+        alert(resultSignup.error);
+        return;
+      }
 
       // Auto sign in after signup
       const result = await signIn("credentials", {
@@ -39,14 +44,16 @@ export default function SignUpPage() {
 
       if (result?.error) {
         alert(
-          "회원가입은 성공했으나 로그인에 실패했습니다. 직접 로그인해 주세요."
+          "회원가입은 완료됐지만 로그인에 실패했습니다. 직접 로그인해 주세요."
         );
         router.push("/auth/signin");
       } else {
         router.push("/");
       }
-    } catch (err: any) {
-      alert(err.message || "회원가입 중 오류가 발생했습니다.");
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "회원가입 중 오류가 발생했습니다.";
+      alert(message);
     } finally {
       setLoading(false);
     }
@@ -130,7 +137,7 @@ export default function SignUpPage() {
             <input
               type="password"
               required
-              placeholder="••••••••"
+              placeholder="********"
               className="w-full bg-gray-50 border-2 border-gray-100 p-4 rounded-2xl text-sm font-bold outline-none focus:border-blue-400 focus:bg-white transition-all"
               value={password}
               onChange={(e) => setPassword(e.target.value)}

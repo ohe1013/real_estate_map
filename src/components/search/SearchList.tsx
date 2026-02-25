@@ -5,30 +5,17 @@ interface SearchListProps {
   results: KakaoPlace[];
   onSelect: (place: KakaoPlace) => void;
   keyword?: string;
+  onRequestManualPick?: () => void;
 }
 
 export default function SearchList({
   results,
   onSelect,
   keyword,
+  onRequestManualPick,
 }: SearchListProps) {
   const handleManualRegister = () => {
-    // Create a dummy place for manual registration
-    const manualPlace: KakaoPlace = {
-      id: "manual-" + Date.now(),
-      place_name: keyword || "새 장소",
-      address_name: "직접 등록한 장소",
-      road_address_name: "",
-      x: "0",
-      y: "0",
-      category_name: "Manual",
-      category_group_code: "",
-      category_group_name: "",
-      phone: "",
-      place_url: "",
-      distance: "",
-    };
-    onSelect(manualPlace);
+    onRequestManualPick?.();
   };
 
   return (
@@ -70,7 +57,7 @@ export default function SearchList({
             </div>
             <div>
               <div className="text-sm font-bold text-blue-600">
-                '{keyword}' 위치 직접 등록하기
+                “{keyword || "새 장소"}” 위치 직접 등록하기
               </div>
               <div className="text-[10px] text-blue-400 mt-0.5">
                 검색 결과에 없다면 직접 위치를 지정하세요

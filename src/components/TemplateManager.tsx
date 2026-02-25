@@ -1,19 +1,15 @@
-"use client";
-import React, { useState, useEffect } from "react";
+﻿"use client";
+import React, { useState, useEffect, useCallback } from "react";
 import { Template, Question } from "@/types";
 import { getTemplates, saveTemplate, deleteTemplate } from "@/lib/queries";
-import {
-  Plus,
-  Trash2,
-  Save,
-  X,
-  GripVertical,
-  ChevronDown,
-  ChevronUp,
-} from "lucide-react";
+import { Plus, Trash2, Save, X } from "lucide-react";
 
 interface TemplateManagerProps {
   onClose: () => void;
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
 }
 
 export default function TemplateManager({ onClose }: TemplateManagerProps) {
@@ -23,32 +19,35 @@ export default function TemplateManager({ onClose }: TemplateManagerProps) {
   const [editingQuestions, setEditingQuestions] = useState<Question[]>([]);
   const [isMobileList, setIsMobileList] = useState(true);
 
-  useEffect(() => {
-    loadTemplates();
+  const selectTemplate = useCallback((t: Template) => {
+    setActiveTemplate(t);
+    setEditingQuestions(
+      t.questions?.map((q) => ({ ...q, required: q.required ?? false })) || []
+    );
+    setIsMobileList(false);
   }, []);
 
-  const loadTemplates = async () => {
+  const loadTemplates = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await getTemplates();
-      setTemplates(data as any);
+      const data = (await getTemplates()) as Template[];
+      setTemplates(data);
       if (data.length > 0 && !activeTemplate) {
-        // Find first user template or first default
-        const first = data.find((t: any) => t.userId) || data[0];
-        selectTemplate(first as any);
+        const first = data.find((t) => Boolean(t.userId)) || data[0];
+        if (first) {
+          selectTemplate(first);
+        }
       }
     } catch (e) {
       console.error(e);
     } finally {
       setLoading(false);
     }
-  };
+  }, [activeTemplate, selectTemplate]);
 
-  const selectTemplate = (t: Template) => {
-    setActiveTemplate(t);
-    setEditingQuestions(t.questions?.map((q) => ({ ...q })) || []);
-    setIsMobileList(false);
-  };
+  useEffect(() => {
+    void loadTemplates();
+  }, [loadTemplates]);
 
   const handleCreateNew = () => {
     const newT: Partial<Template> = {
@@ -58,17 +57,19 @@ export default function TemplateManager({ onClose }: TemplateManagerProps) {
     };
     setActiveTemplate(newT as Template);
     setEditingQuestions([]);
+    setIsMobileList(false);
   };
 
   const handleAddQuestion = () => {
     const newQ: Partial<Question> = {
-      id: "temp-" + Math.random().toString(), // temp id
+      id: "temp-" + Math.random().toString(),
       text: "",
       category: "기본 항목",
       type: "rating",
       criticalLevel: 1,
       isBad: false,
       isActive: true,
+      required: false,
       options: [],
     };
 
@@ -82,10 +83,10 @@ export default function TemplateManager({ onClose }: TemplateManagerProps) {
   const handleQuestionChange = (
     idx: number,
     field: keyof Question,
-    value: any
+    value: unknown
   ) => {
     const next = [...editingQuestions];
-    next[idx] = { ...next[idx], [field]: value };
+    next[idx] = { ...next[idx], [field]: value as Question[keyof Question] };
     setEditingQuestions(next);
   };
 
@@ -101,8 +102,8 @@ export default function TemplateManager({ onClose }: TemplateManagerProps) {
       });
       alert("템플릿이 저장되었습니다.");
       await loadTemplates();
-    } catch (e: any) {
-      alert("저장 실패: " + e.message);
+    } catch (e: unknown) {
+      alert("저장 실패: " + getErrorMessage(e, ""));
     } finally {
       setLoading(false);
     }
@@ -116,18 +117,18 @@ export default function TemplateManager({ onClose }: TemplateManagerProps) {
       await deleteTemplate(activeTemplate.id);
       setActiveTemplate(null);
       await loadTemplates();
-    } catch (e: any) {
-      alert("삭제 실패: " + e.message);
+    } catch (e: unknown) {
+      alert("삭제 실패: " + getErrorMessage(e, ""));
     } finally {
       setLoading(false);
     }
   };
+
   const isReadOnly = !!(activeTemplate?.id && !activeTemplate.userId);
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center md:p-4">
       <div className="bg-white w-full max-w-4xl h-full md:h-[90vh] md:rounded-3xl overflow-hidden flex flex-col shadow-2xl">
-        {/* Header */}
         <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
           <div>
             <h2 className="text-xl font-black text-gray-900">템플릿 관리</h2>
@@ -154,7 +155,6 @@ export default function TemplateManager({ onClose }: TemplateManagerProps) {
         </div>
 
         <div className="flex-1 flex overflow-hidden relative">
-          {/* Sidebar */}
           <div
             className={`w-full md:w-64 border-r border-gray-100 flex flex-col bg-gray-50/30 absolute inset-0 md:relative z-10 transition-transform duration-300 md:translate-x-0 ${
               isMobileList
@@ -196,7 +196,6 @@ export default function TemplateManager({ onClose }: TemplateManagerProps) {
             </div>
           </div>
 
-          {/* Editor */}
           <div
             className={`flex-1 p-4 md:p-8 overflow-y-auto bg-white transition-opacity duration-300 ${
               isMobileList
@@ -206,7 +205,6 @@ export default function TemplateManager({ onClose }: TemplateManagerProps) {
           >
             {activeTemplate ? (
               <div className="space-y-6 md:space-y-8 max-w-2xl mx-auto">
-                {/* Meta Info */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
                   <div className="space-y-2">
                     <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest">
@@ -227,7 +225,7 @@ export default function TemplateManager({ onClose }: TemplateManagerProps) {
                   </div>
                   <div className="space-y-2">
                     <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest">
-                      적용 대상
+                      적용 범위
                     </label>
                     <select
                       disabled={!!isReadOnly}
@@ -236,18 +234,17 @@ export default function TemplateManager({ onClose }: TemplateManagerProps) {
                       onChange={(e) =>
                         setActiveTemplate({
                           ...activeTemplate,
-                          scope: e.target.value as any,
+                          scope: e.target.value as Template["scope"],
                         })
                       }
                     >
-                      <option value="BOTH">전체 (단지 & 세대)</option>
+                      <option value="BOTH">전체 (단지 + 세대)</option>
                       <option value="PLACE">단지 전용</option>
                       <option value="UNIT">세대 전용</option>
                     </select>
                   </div>
                 </div>
 
-                {/* Questions List */}
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
                     <h3 className="text-sm font-black text-gray-800">
@@ -384,7 +381,43 @@ export default function TemplateManager({ onClose }: TemplateManagerProps) {
                                 q.isBad ? "text-red-500" : "text-gray-400"
                               }`}
                             >
-                              악재 레이블
+                              부정 항목
+                            </span>
+                          </label>
+
+                          <label className="flex items-center gap-2 cursor-pointer group/required">
+                            <input
+                              type="checkbox"
+                              disabled={!!isReadOnly}
+                              className="hidden"
+                              checked={!!q.required}
+                              onChange={(e) =>
+                                handleQuestionChange(
+                                  idx,
+                                  "required",
+                                  e.target.checked
+                                )
+                              }
+                            />
+                            <div
+                              className={`w-10 h-6 rounded-full transition-all relative ${
+                                q.required
+                                  ? "bg-blue-500 shadow-inner"
+                                  : "bg-gray-200"
+                              }`}
+                            >
+                              <div
+                                className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-all shadow-sm ${
+                                  q.required ? "translate-x-4" : ""
+                                }`}
+                              />
+                            </div>
+                            <span
+                              className={`text-[10px] font-black uppercase tracking-tighter ${
+                                q.required ? "text-blue-500" : "text-gray-400"
+                              }`}
+                            >
+                              필수 응답
                             </span>
                           </label>
 
@@ -411,7 +444,7 @@ export default function TemplateManager({ onClose }: TemplateManagerProps) {
                               <input
                                 type="text"
                                 disabled={!!isReadOnly}
-                                placeholder="옵션 (쉼표로 구분: 예, 아니오, 몰라요)"
+                                placeholder="옵션 (쉼표로 구분: 예, 아니오, 모름)"
                                 className="w-full bg-white border border-gray-200 p-3 rounded-xl text-[10px] font-bold outline-none focus:border-blue-300 disabled:opacity-50 mt-1"
                                 value={
                                   Array.isArray(q.options)
@@ -454,7 +487,7 @@ export default function TemplateManager({ onClose }: TemplateManagerProps) {
                     선택된 템플릿이 없습니다
                   </h3>
                   <p className="text-[11px] text-gray-400 font-medium mt-1">
-                    왼쪽 목록에서 선택하거나 새로운 템플릿을 추가하세요
+                    왼쪽 목록에서 선택하거나 새 템플릿을 추가하세요
                   </p>
                 </div>
               </div>
@@ -462,7 +495,6 @@ export default function TemplateManager({ onClose }: TemplateManagerProps) {
           </div>
         </div>
 
-        {/* Footer */}
         <div className="p-4 md:p-6 bg-gray-50 border-t border-gray-100 flex flex-col md:flex-row justify-between items-center shrink-0 gap-4 md:gap-0">
           <div className="flex w-full md:w-auto gap-3">
             {activeTemplate?.id && !isReadOnly && (
@@ -471,7 +503,7 @@ export default function TemplateManager({ onClose }: TemplateManagerProps) {
                 disabled={loading}
                 className="flex-1 md:flex-none justify-center px-6 py-3.5 rounded-2xl bg-white border-2 border-red-50 text-red-500 text-xs font-black hover:bg-red-50 transition-all flex items-center gap-2 group shadow-sm active:scale-[0.98]"
               >
-                <Trash2 className="w-4 h-4 group-hover:scale-110 transition-transform" />{" "}
+                <Trash2 className="w-4 h-4 group-hover:scale-110 transition-transform" />
                 템플릿 삭제
               </button>
             )}
@@ -489,7 +521,7 @@ export default function TemplateManager({ onClose }: TemplateManagerProps) {
                 disabled={loading}
                 className="flex-[2] md:flex-none justify-center px-12 py-3.5 rounded-2xl bg-blue-600 text-white text-xs font-black shadow-xl shadow-blue-100 hover:bg-blue-500 transition-all flex items-center gap-2 active:scale-[0.98] disabled:opacity-50"
               >
-                <Save className="w-4 h-4" />{" "}
+                <Save className="w-4 h-4" />
                 <span className="md:inline">
                   {loading ? "저장 중..." : "설정 저장하기"}
                 </span>

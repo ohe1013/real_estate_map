@@ -7,10 +7,8 @@ import {
   Plus,
   Trash2,
   GripVertical,
-  ChevronDown,
   Settings,
   Save,
-  CheckCircle2,
   Layout,
   MessageSquare,
 } from "lucide-react";
@@ -21,28 +19,35 @@ interface TemplateEditorProps {
 
 export default function TemplateEditor({ onClose }: TemplateEditorProps) {
   const [scope, setScope] = useState<"PLACE" | "UNIT">("PLACE");
-  const [template, setTemplate] = useState<any>(null);
+  const [template, setTemplate] = useState<Template | null>(null);
   const [loading, setLoading] = useState(false);
-  const [questions, setQuestions] = useState<any[]>([]);
+  const [questions, setQuestions] = useState<Question[]>([]);
 
   useEffect(() => {
     setLoading(true);
     getTemplateByScope(scope).then((data) => {
-      setTemplate(data);
-      setQuestions(data?.questions || []);
+      const nextTemplate = (data as Template | null) ?? null;
+      setTemplate(nextTemplate);
+      setQuestions(nextTemplate?.questions || []);
       setLoading(false);
     });
   }, [scope]);
 
   const handleAddQuestion = () => {
-    const newQ = {
+    const newQ: Question = {
       id: `temp-${Date.now()}`,
+      templateId: template?.id || "",
       text: "새 질문을 입력하세요",
       type: "rating",
-      category: "일반",
-      isCritical: false,
-      isActive: true,
       options: ["항목 1", "항목 2"],
+      orderIdx: questions.length,
+      category: "일반",
+      criticalLevel: 1,
+      isBad: false,
+      isActive: true,
+      required: false,
+      helpText: null,
+      createdAt: new Date(),
     };
     setQuestions([...questions, newQ]);
   };
@@ -75,8 +80,9 @@ export default function TemplateEditor({ onClose }: TemplateEditorProps) {
       });
       alert("템플릿이 성공적으로 저장되었습니다!");
       onClose();
-    } catch (e: any) {
-      alert("오류 발생: " + e.message);
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "오류가 발생했습니다.";
+      alert("오류 발생: " + message);
     } finally {
       setLoading(false);
     }
@@ -215,7 +221,7 @@ export default function TemplateEditor({ onClose }: TemplateEditorProps) {
                           <input
                             type="checkbox"
                             id={`critical-${q.id}`}
-                            checked={q.isCritical}
+                            checked={q.criticalLevel > 1}
                             onChange={
                               () => {}
                               // handleUpdateQuestion(q.id, {

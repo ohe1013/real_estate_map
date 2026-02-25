@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import SearchBox from "@/components/SearchBox";
@@ -6,8 +6,15 @@ import PlaceSheet from "@/components/PlaceSheet";
 import { getUserPlaces } from "@/lib/queries";
 import { KakaoPlace, Place } from "@/types";
 import { useSession, signOut } from "next-auth/react";
+import {
+  Settings,
+  LogOut,
+  User as UserIcon,
+  LogIn,
+  LayoutDashboard,
+} from "lucide-react";
+import Dashboard from "@/components/Dashboard";
 import TemplateManager from "@/components/TemplateManager";
-import { Settings, LogOut, User as UserIcon, LogIn } from "lucide-react";
 
 const MapView = dynamic(() => import("@/components/MapView"), {
   ssr: false,
@@ -25,7 +32,12 @@ export default function Home() {
     [number, number] | null
   >(null);
   const [selectedPlace, setSelectedPlace] = useState<KakaoPlace | null>(null);
+  const [isPickMode, setIsPickMode] = useState(false);
+  const [pendingManualName, setPendingManualName] = useState<string | null>(
+    null
+  );
   const [showTemplateManager, setShowTemplateManager] = useState(false);
+  const [showDashboard, setShowDashboard] = useState(false);
 
   const fetchSavedPlaces = () => {
     getUserPlaces().then(setSavedPlaces);
@@ -38,11 +50,15 @@ export default function Home() {
   const handlePlaceSelect = (place: KakaoPlace) => {
     const lat = parseFloat(place.y);
     const lng = parseFloat(place.x);
+    setIsPickMode(false);
+    setPendingManualName(null);
     setSelectedLocation([lng, lat]);
     setSelectedPlace(place);
   };
 
   const handleSavedPlaceClick = (place: Place) => {
+    setIsPickMode(false);
+    setPendingManualName(null);
     const kp: KakaoPlace = {
       id: place.kakaoId,
       place_name: place.name,
@@ -59,18 +75,60 @@ export default function Home() {
     };
     handlePlaceSelect(kp);
   };
-  console.log(session);
+
+  const handleRequestManualPick = (name: string) => {
+    setSelectedPlace(null);
+    setSelectedLocation(null);
+    setPendingManualName(name.trim() || "직접 등록 장소");
+    setIsPickMode(true);
+  };
+
+  const handleMapPick = (lng: number, lat: number) => {
+    if (!isPickMode) return;
+
+    const placeName = pendingManualName?.trim() || "직접 등록 장소";
+    const manualPlace: KakaoPlace = {
+      id: `manual:${Date.now()}`,
+      place_name: placeName,
+      x: lng.toString(),
+      y: lat.toString(),
+      address_name: "지도에서 직접 선택한 위치",
+      road_address_name: "",
+      place_url: "",
+      category_name: "직접 등록",
+      category_group_code: "",
+      category_group_name: "",
+      phone: "",
+      distance: "",
+    };
+
+    handlePlaceSelect(manualPlace);
+  };
+
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   return (
     <main className="relative w-screen h-screen overflow-hidden">
-      <SearchBox onSelect={handlePlaceSelect} />
+      <SearchBox
+        onSelect={handlePlaceSelect}
+        onRequestManualPick={handleRequestManualPick}
+      />
 
       <MapView
         selectedLocation={selectedLocation}
         savedPlaces={savedPlaces}
         onPlaceSelect={handleSavedPlaceClick}
+        pickMode={isPickMode}
+        onMapPick={handleMapPick}
       />
+
+      {isPickMode && (
+        <div className="absolute top-20 left-4 right-4 md:right-auto z-10 md:w-96 rounded-xl border border-blue-200 bg-white/95 backdrop-blur px-4 py-3 shadow-lg text-xs font-bold text-blue-700">
+          지도에서 위치를 클릭해{" "}
+          <span className="font-black">“{pendingManualName || "새 장소"}”</span>
+          를 등록하세요.
+        </div>
+      )}
 
       {/* User Actions - Toggleable Menu */}
       <div className="fixed bottom-6 right-6 z-10 flex flex-col items-end gap-3 group">
@@ -84,6 +142,16 @@ export default function Home() {
                   : "opacity-0 scale-90 translate-y-4 pointer-events-none"
               }`}
             >
+              <button
+                onClick={() => {
+                  setShowDashboard(true);
+                  setIsMenuOpen(false);
+                }}
+                className="flex items-center gap-3 bg-white/90 backdrop-blur-md p-3 px-5 rounded-2xl shadow-xl border border-white/20 text-gray-700 hover:text-blue-600 transition-all hover:pr-8 group/item"
+              >
+                <LayoutDashboard className="w-5 h-5 group-hover/item:scale-110 transition-transform" />
+                <span className="text-sm font-bold">저장한 장소 목록</span>
+              </button>
               <button
                 onClick={() => {
                   setShowTemplateManager(true);
@@ -117,9 +185,10 @@ export default function Home() {
               </span>
               <div className="w-8 h-8 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-inner">
                 {session.user?.image ? (
+                  // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    loading="lazy"
                     src={session.user.image}
+                    alt="프로필 이미지"
                     className="w-full h-full rounded-xl object-cover"
                   />
                 ) : (
@@ -151,6 +220,17 @@ export default function Home() {
 
       {showTemplateManager && (
         <TemplateManager onClose={() => setShowTemplateManager(false)} />
+      )}
+
+      {showDashboard && (
+        <Dashboard
+          places={savedPlaces}
+          onClose={() => setShowDashboard(false)}
+          onSelectPlace={(place) => {
+            handleSavedPlaceClick(place);
+            setShowDashboard(false);
+          }}
+        />
       )}
     </main>
   );

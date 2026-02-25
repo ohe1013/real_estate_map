@@ -1,11 +1,12 @@
 import { KakaoPlace } from "@/types";
-import { Search, MapPin, Plus } from "lucide-react";
+import { MapPin, Plus } from "lucide-react";
 
 interface SuggestListProps {
   results: KakaoPlace[];
   onSelect: (place: KakaoPlace) => void;
   active: boolean;
   keyword?: string;
+  onRequestManualPick?: () => void;
 }
 
 export default function SuggestList({
@@ -13,25 +14,12 @@ export default function SuggestList({
   onSelect,
   active,
   keyword,
+  onRequestManualPick,
 }: SuggestListProps) {
   if (!active) return null;
 
   const handleManualRegister = () => {
-    const manualPlace: KakaoPlace = {
-      id: "manual-" + Date.now(),
-      place_name: keyword || "새 장소",
-      address_name: "직접 등록한 장소",
-      road_address_name: "",
-      x: "0",
-      y: "0",
-      category_name: "Manual",
-      category_group_code: "",
-      category_group_name: "",
-      phone: "",
-      place_url: "",
-      distance: "",
-    };
-    onSelect(manualPlace);
+    onRequestManualPick?.();
   };
 
   return (
@@ -74,7 +62,7 @@ export default function SuggestList({
             </div>
             <div>
               <div className="text-sm font-bold text-blue-600">
-                '{keyword || "..."}' 직접 등록하기
+                “{keyword || "..."}” 직접 등록하기
               </div>
               <div className="text-[10px] text-blue-400 mt-0.5">
                 원하는 위치를 지도에서 직접 선택할 수 있습니다
