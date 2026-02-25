@@ -7,6 +7,11 @@
     "build": "prisma generate && next build",
     "start": "next start",
     "lint": "eslint",
+    "lint:changed": "node scripts/lint-changed.mjs",
+    "quality:phase-a": "npm run lint:changed",
+    "quality:phase-b": "npm run lint",
+    "security:audit": "npm audit --audit-level=high",
+    "security:secrets-scan": "node scripts/secrets-scan.mjs",
     "postinstall": "prisma generate"
   },
   "prisma": {
@@ -20,7 +25,7 @@
     "clsx": "^2.1.1",
     "lucide-react": "^0.562.0",
     "maplibre-gl": "^5.16.0",
-    "next": "16.1.2",
+    "next": "16.1.6",
     "next-auth": "^5.0.0-beta.30",
     "prisma": "5.21.1",
     "react": "19.2.3",
@@ -36,7 +41,7 @@
     "@types/react-dom": "^19",
     "babel-plugin-react-compiler": "1.0.0",
     "eslint": "^9",
-    "eslint-config-next": "16.1.2",
+    "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
