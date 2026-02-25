@@ -65,7 +65,7 @@ export interface Note {
   placeId?: string | null;
   unitId?: string | null;
   templateId: string | null;
-  answers: any;
+  answers: Record<string, unknown>;
   evaluation?: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -76,7 +76,7 @@ export interface Question {
   templateId: string;
   text: string;
   type: string;
-  options?: any;
+  options?: unknown;
   orderIdx: number;
   category?: string | null;
   criticalLevel: number;

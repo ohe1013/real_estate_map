@@ -1,44 +1,111 @@
 import { NextResponse } from "next/server";
+import { logServerError } from "@/lib/observability";
+
+const KAKAO_SUGGEST_URL =
+  "https://suggest-bar.kakao.com/suggest?id=merchant_ui&cnt=10&name=suggest&q=";
+const MAX_KEYWORD_LENGTH = 80;
+const REQUEST_TIMEOUT_MS = 4000;
+
+type SuggestResponseItem = {
+  key: string;
+};
+
+function normalizeKeyword(keyword: string | null) {
+  const trimmed = keyword?.trim() || "";
+  if (!trimmed) return "";
+  return trimmed.slice(0, MAX_KEYWORD_LENGTH);
+}
+
+function parseSuggestPayload(text: string): unknown {
+  const payload = text.trim();
+  if (!payload) return null;
+
+  try {
+    return JSON.parse(payload);
+  } catch {
+    const jsonpMatch = payload.match(/^suggest\(([\s\S]*)\)\s*;?$/);
+    if (!jsonpMatch) return null;
+    try {
+      return JSON.parse(jsonpMatch[1]);
+    } catch {
+      return null;
+    }
+  }
+}
+
+function toSuggestItems(parsed: unknown): SuggestResponseItem[] {
+  if (!parsed || typeof parsed !== "object") return [];
+
+  const candidateArrays: unknown[] = [];
+  const json = parsed as Record<string, unknown>;
+
+  if (Array.isArray(json.items)) candidateArrays.push(json.items);
+  if (Array.isArray(json.suggest)) candidateArrays.push(json.suggest);
+  if (json.suggest && typeof json.suggest === "object") {
+    const nested = json.suggest as Record<string, unknown>;
+    if (Array.isArray(nested.items)) candidateArrays.push(nested.items);
+  }
+  if (Array.isArray(json.result)) candidateArrays.push(json.result);
+
+  for (const candidate of candidateArrays) {
+    const normalized = (candidate as unknown[])
+      .map((item) => {
+        if (typeof item === "string") return item.trim();
+        if (item && typeof item === "object") {
+          const obj = item as Record<string, unknown>;
+          if (typeof obj.key === "string") return obj.key.trim();
+          if (typeof obj.value === "string") return obj.value.trim();
+          if (typeof obj.text === "string") return obj.text.trim();
+          if (typeof obj.name === "string") return obj.name.trim();
+        }
+        return "";
+      })
+      .filter((item) => item.length > 0)
+      .slice(0, 10)
+      .map((key) => ({ key }));
+
+    if (normalized.length > 0) {
+      return normalized;
+    }
+  }
+
+  return [];
+}
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const keyword = searchParams.get("keyword");
+  const keyword = normalizeKeyword(searchParams.get("keyword"));
 
   if (!keyword) {
     return NextResponse.json({ items: [] });
   }
 
   try {
-    const res = await fetch(
-      `https://suggest-bar.kakao.com/suggest?id=merchant_ui&cnt=10&name=suggest&q=${encodeURIComponent(
-        keyword
-      )}`
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+    const response = await fetch(
+      `${KAKAO_SUGGEST_URL}${encodeURIComponent(keyword)}`,
+      {
+        signal: controller.signal,
+        headers: {
+          accept: "application/json, text/plain, */*",
+        },
+        cache: "no-store",
+      }
     );
-    // The API returns JSONP-like format or raw text depending on params.
-    // Using `https://suggest-bar.kakao.com/suggest?q=...` usually returns JSON if valid headers or specific params are set,
-    // but often it returns `suggest({...})`.
-    // Let's verify the response format. Reference code used `http://localhost:3000/kakao/get/search`.
-    // We will assume standard JSON response or handle text parsing if needed.
-    // Actually, `suggest-bar.kakao.com` might return JSON directly if no callback is specified or headers are set.
-    // Let's try standard fetch.
+    clearTimeout(timeout);
 
-    // NOTE: The reference implementation used a proxy.
-    // Let's stick to the simplest proxy.
-
-    const data = await res.text();
-    // Only simple parsing if it wraps in function
-    // But usually this API returns stringified JSON if we don't pass callback.
-    // Let's try to parse.
-    try {
-      const json = JSON.parse(data);
-      return NextResponse.json(json);
-    } catch {
-      // If it's JSONP, we might need to strip `suggest(` / `)`
-      // However, for MVP, if this internal API is flaky, we might skip "Suggest" or strictly use what works.
-      // Let's trust it returns standard JSON for now or text that is JSON.
-      return NextResponse.json({ items: [] });
+    if (!response.ok) {
+      return NextResponse.json({ items: [] }, { status: response.status });
     }
+
+    const rawPayload = await response.text();
+    const parsedPayload = parseSuggestPayload(rawPayload);
+    const items = toSuggestItems(parsedPayload);
+    return NextResponse.json({ items });
   } catch (error) {
+    logServerError("api.suggest.fetch_failed", error, { keyword });
     return NextResponse.json({ items: [] }, { status: 500 });
   }
 }

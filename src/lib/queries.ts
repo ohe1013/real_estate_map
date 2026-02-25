@@ -1,9 +1,26 @@
 "use server";
 
 import { prisma } from "./db";
-import { KakaoPlace, Place as MyPlaceType } from "@/types";
+import { KakaoPlace, Place, Template } from "@/types";
+import { Prisma } from "@prisma/client";
 import { supabase } from "./supabaseClient";
 import { auth } from "@/auth";
+import {
+  assertAuthUser,
+  assertNonEmptyString,
+  assertPlaceOwnership,
+  assertPlainObject,
+  assertUnitOwnership,
+  throwCodeError,
+  validateExternalUrl,
+  validateFavoriteColor,
+  validateLatLng,
+} from "./guards";
+import {
+  ExternalProvider,
+  getExternalLinkProviderKey,
+  getExternalProviderTitle,
+} from "./links";
 
 // searchPlaces still uses Supabase Edge Function because it's already set up and works as a proxy
 export const searchPlaces = async (query: string) => {
@@ -49,12 +66,83 @@ export async function getTemplateByScope(scope: "PLACE" | "UNIT") {
   });
 }
 
+function isAnswerProvided(answer: unknown, questionType?: string): boolean {
+  if (answer === undefined || answer === null) return false;
+
+  if (questionType === "multiselect") {
+    return Array.isArray(answer) && answer.length > 0;
+  }
+
+  if (questionType === "rating") {
+    return Number.isFinite(Number(answer));
+  }
+
+  if (typeof answer === "string") {
+    return answer.trim().length > 0;
+  }
+
+  return true;
+}
+
+function getMissingRequiredQuestionIds(
+  answers: Record<string, unknown>,
+  questions: Array<{
+    id: string;
+    type?: string;
+    required?: boolean;
+    isActive?: boolean;
+  }>
+): string[] {
+  return questions
+    .filter((q) => q.required && q.isActive !== false)
+    .filter((q) => !isAnswerProvided(answers[q.id], q.type))
+    .map((q) => q.id);
+}
+
+type EvaluationQuestion = {
+  id: string;
+  type?: string | null;
+  options?: unknown;
+  criticalLevel?: number | null;
+  isBad?: boolean | null;
+  isActive?: boolean | null;
+};
+
+type SaveTemplateQuestionInput = {
+  id?: string;
+  text: string;
+  type: string;
+  options?: unknown;
+  category?: string | null;
+  criticalLevel?: number;
+  isBad?: boolean;
+  isActive?: boolean;
+  required?: boolean;
+  helpText?: string | null;
+};
+
+function toPrismaInputJson(
+  value: unknown
+): Prisma.InputJsonValue | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  return value as Prisma.InputJsonValue;
+}
+
+function getYesNoBaseScore(answer: unknown): number | null {
+  if (answer === true || answer === "Yes" || answer === "yes") return 2;
+  if (answer === false || answer === "No" || answer === "no") return -2;
+  if (answer === "-") return 0;
+  return null;
+}
+
 /**
  * Calculates Pass/Hold/Fail based on answers
  */
 export async function calculateEvaluation(
-  answers: Record<string, any>,
-  questions: any[]
+  answers: Record<string, unknown>,
+  questions: EvaluationQuestion[]
 ) {
   let totalScore = 0;
 
@@ -64,90 +152,103 @@ export async function calculateEvaluation(
     if (ans === undefined || ans === null) continue;
 
     const multiplier = q.criticalLevel || 1;
+    const polarity = q.isBad ? -1 : 1;
     let questionScore = 0;
 
     if (q.type === "rating") {
       // 1(-2), 2(-1), 3(0), 4(1), 5(2)
-      questionScore = (Number(ans) - 3) * multiplier;
+      const rating = Number(ans);
+      if (!Number.isFinite(rating)) continue;
+      const clampedRating = Math.max(1, Math.min(5, Math.round(rating)));
+      const baseScore = clampedRating - 3;
+      questionScore = baseScore * multiplier * polarity;
     } else if (q.type === "yesno") {
       // Yes (2), No (-2), "-" (0)
-      if (ans === "Yes" || ans === true) questionScore = 2 * multiplier;
-      else if (ans === "No" || ans === false) questionScore = -2 * multiplier;
-      else if (ans === "-") questionScore = 0;
+      const baseScore = getYesNoBaseScore(ans);
+      if (baseScore === null) continue;
+      questionScore = baseScore * multiplier * polarity;
     } else if (q.type === "multiselect") {
       const options = Array.isArray(q.options) ? q.options : [];
       const selected = Array.isArray(ans) ? ans : [];
       if (options.length > 0) {
-        const ratio = selected.length / options.length;
-        if (q.isBad) {
-          questionScore = ratio * -2;
-        } else {
-          questionScore = ratio * 2;
-        }
+        const dedupedSelectedCount = new Set(selected).size;
+        const ratio = Math.min(dedupedSelectedCount, options.length) / options.length;
+        const baseScore = ratio * 2;
+        questionScore = baseScore * multiplier * polarity;
       }
     }
 
     totalScore += questionScore;
   }
 
-  console.log({ totalScore });
   if (totalScore >= 3) return "PASS";
   if (totalScore >= 0) return "HOLD";
   return "FAIL";
 }
 
-export async function upsertPlace(kakaoPlace: KakaoPlace): Promise<any> {
+export async function upsertPlace(kakaoPlace: KakaoPlace): Promise<Place> {
   const session = await auth();
-  const userId = session?.user?.id;
-  if (!userId) throw new Error("Unauthorized");
+  const userId = assertAuthUser(session?.user?.id);
+
+  const kakaoId = assertNonEmptyString(kakaoPlace?.id, "kakaoPlace.id");
+  const placeName = assertNonEmptyString(
+    kakaoPlace?.place_name,
+    "kakaoPlace.place_name"
+  );
+  const latRaw = assertNonEmptyString(kakaoPlace?.y, "kakaoPlace.y");
+  const lngRaw = assertNonEmptyString(kakaoPlace?.x, "kakaoPlace.x");
+  const lat = parseFloat(latRaw);
+  const lng = parseFloat(lngRaw);
+  validateLatLng(lat, lng);
 
   // DB 리셋 등으로 인해 세션은 있으나 실제 유저 레코드가 없을 수 있음
   const userExists = await prisma.user.count({ where: { id: userId } });
   if (userExists === 0) {
-    throw new Error(
+    throwCodeError(
+      "UNAUTHORIZED",
       "세션 정보가 유효하지 않습니다. 로그아웃 후 다시 로그인해 주세요."
     );
   }
 
-  const lat = parseFloat(kakaoPlace.y);
-  const lng = parseFloat(kakaoPlace.x);
-
-  return await prisma.place.upsert({
-    where: {
-      userId_kakaoId: {
-        userId,
-        kakaoId: kakaoPlace.id,
-      },
-    },
-    update: {
-      name: kakaoPlace.place_name,
-      lat,
-      lng,
-      address: kakaoPlace.address_name,
-      roadAddress: kakaoPlace.road_address_name,
-    },
-    create: {
-      userId,
-      kakaoId: kakaoPlace.id,
-      name: kakaoPlace.place_name,
-      lat,
-      lng,
-      address: kakaoPlace.address_name,
-      roadAddress: kakaoPlace.road_address_name,
-    },
-  });
-}
-
-export async function getPlaceByKakaoId(kakaoId: string): Promise<any> {
-  const session = await auth();
-  const userId = session?.user?.id;
-  if (!userId) return null;
-
-  return await prisma.place.findUnique({
+  const place = await prisma.place.upsert({
     where: {
       userId_kakaoId: {
         userId,
         kakaoId,
+      },
+    },
+    update: {
+      name: placeName,
+      lat,
+      lng,
+      address: kakaoPlace.address_name?.trim() || null,
+      roadAddress: kakaoPlace.road_address_name?.trim() || null,
+    },
+    create: {
+      userId,
+      kakaoId,
+      name: placeName,
+      lat,
+      lng,
+      address: kakaoPlace.address_name?.trim() || null,
+      roadAddress: kakaoPlace.road_address_name?.trim() || null,
+    },
+  });
+
+  return place as Place;
+}
+
+export async function getPlaceByKakaoId(kakaoId: string): Promise<Place | null> {
+  const normalizedKakaoId = assertNonEmptyString(kakaoId, "kakaoId");
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) return null;
+
+  const place = await prisma.place.findUnique({
+    where: {
+      userId_kakaoId: {
+        userId,
+        kakaoId: normalizedKakaoId,
       },
     },
     include: {
@@ -168,22 +269,25 @@ export async function getPlaceByKakaoId(kakaoId: string): Promise<any> {
       },
     },
   });
+
+  return place as Place | null;
 }
 
 export async function saveFavorite(placeId: string, color: string) {
   const session = await auth();
-  const userId = session?.user?.id;
-  if (!userId) throw new Error("Unauthorized");
+  const userId = assertAuthUser(session?.user?.id);
+  const normalizedColor = validateFavoriteColor(color);
+  const place = await assertPlaceOwnership(placeId, userId);
 
   return await prisma.favorite.upsert({
     where: {
       userId_placeId: {
         userId,
-        placeId,
+        placeId: place.id,
       },
     },
-    update: { color },
-    create: { userId, placeId, color },
+    update: { color: normalizedColor },
+    create: { userId, placeId: place.id, color: normalizedColor },
   });
 }
 
@@ -193,15 +297,54 @@ export async function saveExternalLink(
   url: string
 ) {
   const session = await auth();
-  const userId = session?.user?.id;
-  if (!userId) throw new Error("Unauthorized");
+  const userId = assertAuthUser(session?.user?.id);
+  const place = await assertPlaceOwnership(placeId, userId);
+  const normalizedTitle = assertNonEmptyString(title, "title");
+  const normalizedUrl = validateExternalUrl(url);
 
   return await prisma.externalLink.create({
     data: {
       userId,
-      placeId,
-      title,
-      url,
+      placeId: place.id,
+      title: normalizedTitle,
+      url: normalizedUrl,
+    },
+  });
+}
+
+export async function saveProviderExternalLink(
+  placeId: string,
+  provider: ExternalProvider,
+  url: string
+) {
+  const session = await auth();
+  const userId = assertAuthUser(session?.user?.id);
+  const place = await assertPlaceOwnership(placeId, userId);
+  const normalizedUrl = validateExternalUrl(url);
+  const providerTitle = getExternalProviderTitle(provider);
+
+  const existingLinks = await prisma.externalLink.findMany({
+    where: { userId, placeId: place.id },
+    select: { id: true, title: true },
+  });
+
+  const existingProviderLink = existingLinks.find(
+    (link) => getExternalLinkProviderKey(link.title) === provider
+  );
+
+  if (existingProviderLink) {
+    return await prisma.externalLink.update({
+      where: { id: existingProviderLink.id },
+      data: { title: providerTitle, url: normalizedUrl },
+    });
+  }
+
+  return await prisma.externalLink.create({
+    data: {
+      userId,
+      placeId: place.id,
+      title: providerTitle,
+      url: normalizedUrl,
     },
   });
 }
@@ -217,61 +360,185 @@ export async function saveNote({
 }: {
   placeId?: string;
   unitId?: string;
-  answers: any;
+  answers: Record<string, unknown>;
   templateId?: string;
 }) {
   const session = await auth();
-  const userId = session?.user?.id;
-  if (!userId) throw new Error("Unauthorized");
+  const userId = assertAuthUser(session?.user?.id);
+  const normalizedAnswersObject = assertPlainObject(answers, "answers");
+  const normalizedTemplateId = templateId?.trim() || undefined;
+  const normalizedPlaceId = placeId?.trim() || undefined;
+  const normalizedUnitId = unitId?.trim() || undefined;
 
-  let evaluation: string | null = null;
+  if (!normalizedPlaceId && !normalizedUnitId) {
+    throwCodeError(
+      "VALIDATION_ERROR",
+      "placeId 또는 unitId 중 하나는 반드시 필요합니다."
+    );
+  }
 
-  if (templateId) {
-    const template = await prisma.template.findUnique({
-      where: { id: templateId },
-      include: { questions: true },
-    });
-    if (template) {
-      evaluation = await calculateEvaluation(answers, template.questions);
+  let targetPlaceId: string | null = null;
+  let targetUnitId: string | null = null;
+
+  if (normalizedUnitId) {
+    const unit = await assertUnitOwnership(normalizedUnitId, userId);
+    targetUnitId = unit.id;
+    targetPlaceId = unit.placeId;
+
+    if (normalizedPlaceId && normalizedPlaceId !== unit.placeId) {
+      throwCodeError(
+        "VALIDATION_ERROR",
+        "unitId와 placeId가 서로 다른 대상을 가리킵니다."
+      );
     }
   }
 
-  // Find existing note for this target AND user
-  const where = unitId ? { unitId, userId } : { placeId, unitId: null, userId };
+  if (normalizedPlaceId) {
+    const place = await assertPlaceOwnership(normalizedPlaceId, userId);
 
-  const existing = await prisma.note.findFirst({ where });
+    if (!targetPlaceId) {
+      targetPlaceId = place.id;
+    }
+  }
 
-  if (existing) {
-    return await prisma.note.update({
-      where: { id: existing.id },
-      data: {
-        answers,
-        templateId,
-        evaluation,
-        updatedAt: new Date(),
-      },
+  let evaluation: string | null = null;
+
+  if (normalizedTemplateId) {
+    const template = await prisma.template.findUnique({
+      where: { id: normalizedTemplateId },
+      include: { questions: true },
     });
-  } else {
-    return await prisma.note.create({
-      data: {
+
+    if (!template) {
+      throwCodeError(
+        "VALIDATION_ERROR",
+        `유효하지 않은 templateId 입니다. (${normalizedTemplateId})`
+      );
+    }
+
+    if (template.userId && template.userId !== userId) {
+      throwCodeError("FORBIDDEN", "해당 템플릿에 접근할 권한이 없습니다.");
+    }
+
+    const missingRequiredIds = getMissingRequiredQuestionIds(
+      normalizedAnswersObject,
+      template.questions
+    );
+
+    if (missingRequiredIds.length > 0) {
+      throwCodeError(
+        "VALIDATION_ERROR",
+        `필수 질문이 누락되었습니다. missingQuestionIds=${missingRequiredIds.join(",")}`
+      );
+    }
+
+    evaluation = await calculateEvaluation(normalizedAnswersObject, template.questions);
+  }
+
+  if (targetUnitId) {
+    const createdId = crypto.randomUUID();
+
+    await prisma.$executeRaw`
+      INSERT INTO "notes" (
+        "id",
+        "user_id",
+        "place_id",
+        "unit_id",
+        "template_id",
+        "answers",
+        "evaluation",
+        "created_at",
+        "updated_at"
+      )
+      VALUES (
+        ${createdId}::uuid,
+        ${userId}::uuid,
+        NULL,
+        ${targetUnitId}::uuid,
+        ${normalizedTemplateId ?? null}::uuid,
+        ${JSON.stringify(normalizedAnswersObject)}::jsonb,
+        ${evaluation},
+        NOW(),
+        NOW()
+      )
+      ON CONFLICT ("user_id", "unit_id")
+      DO UPDATE SET
+        "template_id" = EXCLUDED."template_id",
+        "answers" = EXCLUDED."answers",
+        "evaluation" = EXCLUDED."evaluation",
+        "updated_at" = NOW()
+    `;
+
+    return await prisma.note.findFirst({
+      where: {
         userId,
-        placeId: unitId ? null : placeId,
-        unitId,
-        answers,
-        templateId,
-        evaluation,
+        unitId: targetUnitId,
       },
     });
   }
+
+  if (!targetPlaceId) {
+    throwCodeError(
+      "VALIDATION_ERROR",
+      "저장할 placeId 또는 unitId 대상이 확인되지 않았습니다."
+    );
+  }
+
+  const createdId = crypto.randomUUID();
+
+  await prisma.$executeRaw`
+    INSERT INTO "notes" (
+      "id",
+      "user_id",
+      "place_id",
+      "unit_id",
+      "template_id",
+      "answers",
+      "evaluation",
+      "created_at",
+      "updated_at"
+    )
+    VALUES (
+      ${createdId}::uuid,
+      ${userId}::uuid,
+      ${targetPlaceId}::uuid,
+      NULL,
+      ${normalizedTemplateId ?? null}::uuid,
+      ${JSON.stringify(normalizedAnswersObject)}::jsonb,
+      ${evaluation},
+      NOW(),
+      NOW()
+    )
+    ON CONFLICT ("user_id", "place_id")
+    DO UPDATE SET
+      "template_id" = EXCLUDED."template_id",
+      "answers" = EXCLUDED."answers",
+      "evaluation" = EXCLUDED."evaluation",
+      "updated_at" = NOW()
+  `;
+
+  return await prisma.note.findFirst({
+    where: {
+      userId,
+      placeId: targetPlaceId,
+    },
+  });
 }
 
-export async function getUserPlaces(): Promise<any[]> {
+export async function getUserPlaces(): Promise<Place[]> {
   const session = await auth();
   const userId = session?.user?.id;
   if (!userId) return [];
 
-  return await prisma.place.findMany({
-    where: { userId },
+  const places = await prisma.place.findMany({
+    where: {
+      userId,
+      OR: [
+        { favorites: { isNot: null } },
+        { notes: { some: { unitId: null, userId } } },
+        { units: { some: { notes: { some: { userId } } } } },
+      ],
+    },
     include: {
       favorites: {
         where: { userId },
@@ -282,6 +549,8 @@ export async function getUserPlaces(): Promise<any[]> {
       },
     },
   });
+
+  return places as Place[];
 }
 
 // --- Unit Management ---
@@ -296,25 +565,46 @@ export async function upsertUnit(data: {
   viewDesc?: string;
 }) {
   const session = await auth();
-  const userId = session?.user?.id;
-  if (!userId) throw new Error("Unauthorized");
+  const userId = assertAuthUser(session?.user?.id);
+  const place = await assertPlaceOwnership(data.placeId, userId);
+  const normalizedLabel = assertNonEmptyString(data.label, "label");
+
+  const existing = await prisma.unit.findUnique({
+    where: {
+      placeId_label: {
+        placeId: place.id,
+        label: normalizedLabel,
+      },
+    },
+    select: { id: true, userId: true },
+  });
+
+  if (existing && existing.userId !== userId) {
+    throwCodeError("FORBIDDEN", "해당 세대를 수정할 권한이 없습니다.");
+  }
 
   return await prisma.unit.upsert({
     where: {
       placeId_label: {
-        placeId: data.placeId,
-        label: data.label,
+        placeId: place.id,
+        label: normalizedLabel,
       },
     },
     update: {
-      dong: data.dong,
-      ho: data.ho,
+      dong: data.dong?.trim() || null,
+      ho: data.ho?.trim() || null,
       floor: data.floor,
-      direction: data.direction,
-      viewDesc: data.viewDesc,
+      direction: data.direction?.trim() || null,
+      viewDesc: data.viewDesc?.trim() || null,
     },
     create: {
-      ...data,
+      placeId: place.id,
+      label: normalizedLabel,
+      dong: data.dong?.trim() || null,
+      ho: data.ho?.trim() || null,
+      floor: data.floor,
+      direction: data.direction?.trim() || null,
+      viewDesc: data.viewDesc?.trim() || null,
       userId,
     },
   });
@@ -363,8 +653,8 @@ export async function getTemplates() {
 export async function saveTemplate(data: {
   id?: string;
   title: string;
-  scope: string;
-  questions: any[];
+  scope: Template["scope"];
+  questions: SaveTemplateQuestionInput[];
 }) {
   const session = await auth();
   const userId = session?.user?.id;
@@ -388,13 +678,14 @@ export async function saveTemplate(data: {
           create: data.questions.map((q, idx) => ({
             text: q.text,
             type: q.type,
-            options: q.options,
+            options: toPrismaInputJson(q.options),
             orderIdx: idx,
-            category: q.category,
-            criticalLevel: q.criticalLevel,
-            isBad: q.isBad,
+            category: q.category ?? null,
+            criticalLevel: q.criticalLevel ?? 1,
+            isBad: q.isBad ?? false,
             isActive: q.isActive ?? true,
-            helpText: q.helpText,
+            required: q.required ?? false,
+            helpText: q.helpText ?? null,
           })),
         },
       },
@@ -410,13 +701,14 @@ export async function saveTemplate(data: {
           create: data.questions.map((q, idx) => ({
             text: q.text,
             type: q.type,
-            options: q.options,
+            options: toPrismaInputJson(q.options),
             orderIdx: idx,
-            category: q.category,
-            criticalLevel: q.criticalLevel,
-            isBad: q.isBad,
+            category: q.category ?? null,
+            criticalLevel: q.criticalLevel ?? 1,
+            isBad: q.isBad ?? false,
             isActive: q.isActive ?? true,
-            helpText: q.helpText,
+            required: q.required ?? false,
+            helpText: q.helpText ?? null,
           })),
         },
       },
