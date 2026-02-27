@@ -1,6 +1,7 @@
 ﻿"use client";
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
+import { useRouter } from "next/navigation";
 import SearchBox from "@/components/SearchBox";
 import PlaceSheet from "@/components/PlaceSheet";
 import { getUserPlaces } from "@/lib/queries";
@@ -26,7 +27,8 @@ const MapView = dynamic(() => import("@/components/MapView"), {
 });
 
 export default function Home() {
-  const { data: session } = useSession();
+  const router = useRouter();
+  const { data: session, status } = useSession();
   const [savedPlaces, setSavedPlaces] = useState<Place[]>([]);
   const [selectedLocation, setSelectedLocation] = useState<
     [number, number] | null
@@ -34,7 +36,7 @@ export default function Home() {
   const [selectedPlace, setSelectedPlace] = useState<KakaoPlace | null>(null);
   const [isPickMode, setIsPickMode] = useState(false);
   const [pendingManualName, setPendingManualName] = useState<string | null>(
-    null
+    null,
   );
   const [showTemplateManager, setShowTemplateManager] = useState(false);
   const [showDashboard, setShowDashboard] = useState(false);
@@ -46,6 +48,16 @@ export default function Home() {
   useEffect(() => {
     fetchSavedPlaces();
   }, [session]);
+
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    const hasName =
+      typeof session?.user?.name === "string" &&
+      session.user.name.trim().length > 0;
+    if (!hasName) {
+      router.replace("/auth/complete-profile");
+    }
+  }, [router, session?.user?.name, status]);
 
   const handlePlaceSelect = (place: KakaoPlace) => {
     const lat = parseFloat(place.y);
@@ -181,7 +193,7 @@ export default function Home() {
               }`}
             >
               <span className="text-xs font-black text-gray-700">
-                {session.user?.name || session.user?.email}
+                {session.user?.name || session.user?.email || "내 계정"}
               </span>
               <div className="w-8 h-8 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-inner">
                 {session.user?.image ? (

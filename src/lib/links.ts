@@ -76,18 +76,30 @@ export function buildAutoExternalLink(
   return config.buildAutoUrl(getPlaceQuery(place));
 }
 
+function isValidHttpUrl(value?: string | null): boolean {
+  if (!value) return false;
+  try {
+    const parsed = new URL(value.trim());
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 export function resolveExternalProviderLink(
   provider: ExternalProvider,
-  place: KakaoPlace | Place,
   externalLinks: ExternalLink[]
 ): { url: string; isSaved: boolean } {
   const savedLink = externalLinks.find(
     (link) => getExternalLinkProviderKey(link.title) === provider
   );
-  if (savedLink?.url) {
-    return { url: savedLink.url, isSaved: true };
+  if (savedLink) {
+    if (savedLink.url && isValidHttpUrl(savedLink.url)) {
+      return { url: savedLink.url, isSaved: true };
+    }
+    return { url: "", isSaved: true };
   }
-  return { url: buildAutoExternalLink(provider, place), isSaved: false };
+  return { url: "", isSaved: false };
 }
 
 export const EXTERNAL_PROVIDER_KEYS = PROVIDERS.map((provider) => provider.key);

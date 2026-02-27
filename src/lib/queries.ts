@@ -312,6 +312,62 @@ export async function saveExternalLink(
   });
 }
 
+export async function updateExternalLink(
+  linkId: string,
+  title: string,
+  url: string
+) {
+  const session = await auth();
+  const userId = assertAuthUser(session?.user?.id);
+  const normalizedLinkId = assertNonEmptyString(linkId, "linkId");
+  const normalizedTitle = assertNonEmptyString(title, "title");
+  const normalizedUrl = validateExternalUrl(url);
+
+  const link = await prisma.externalLink.findUnique({
+    where: { id: normalizedLinkId },
+    select: { id: true, userId: true },
+  });
+
+  if (!link) {
+    throwCodeError("VALIDATION_ERROR", "존재하지 않는 링크입니다.");
+  }
+
+  if (link.userId !== userId) {
+    throwCodeError("FORBIDDEN", "해당 링크를 수정할 권한이 없습니다.");
+  }
+
+  return await prisma.externalLink.update({
+    where: { id: normalizedLinkId },
+    data: {
+      title: normalizedTitle,
+      url: normalizedUrl,
+    },
+  });
+}
+
+export async function deleteExternalLink(linkId: string) {
+  const session = await auth();
+  const userId = assertAuthUser(session?.user?.id);
+  const normalizedLinkId = assertNonEmptyString(linkId, "linkId");
+
+  const link = await prisma.externalLink.findUnique({
+    where: { id: normalizedLinkId },
+    select: { id: true, userId: true },
+  });
+
+  if (!link) {
+    throwCodeError("VALIDATION_ERROR", "존재하지 않는 링크입니다.");
+  }
+
+  if (link.userId !== userId) {
+    throwCodeError("FORBIDDEN", "해당 링크를 삭제할 권한이 없습니다.");
+  }
+
+  return await prisma.externalLink.delete({
+    where: { id: normalizedLinkId },
+  });
+}
+
 export async function saveProviderExternalLink(
   placeId: string,
   provider: ExternalProvider,
@@ -320,7 +376,7 @@ export async function saveProviderExternalLink(
   const session = await auth();
   const userId = assertAuthUser(session?.user?.id);
   const place = await assertPlaceOwnership(placeId, userId);
-  const normalizedUrl = validateExternalUrl(url);
+  const normalizedInputUrl = url.trim();
   const providerTitle = getExternalProviderTitle(provider);
 
   const existingLinks = await prisma.externalLink.findMany({
@@ -331,6 +387,17 @@ export async function saveProviderExternalLink(
   const existingProviderLink = existingLinks.find(
     (link) => getExternalLinkProviderKey(link.title) === provider
   );
+
+  if (!normalizedInputUrl) {
+    if (existingProviderLink) {
+      await prisma.externalLink.delete({
+        where: { id: existingProviderLink.id },
+      });
+    }
+    return null;
+  }
+
+  const normalizedUrl = validateExternalUrl(normalizedInputUrl);
 
   if (existingProviderLink) {
     return await prisma.externalLink.update({
@@ -435,45 +502,53 @@ export async function saveNote({
     evaluation = await calculateEvaluation(normalizedAnswersObject, template.questions);
   }
 
+  const answersJson = normalizedAnswersObject as Prisma.InputJsonValue;
+
   if (targetUnitId) {
-    const createdId = crypto.randomUUID();
-
-    await prisma.$executeRaw`
-      INSERT INTO "notes" (
-        "id",
-        "user_id",
-        "place_id",
-        "unit_id",
-        "template_id",
-        "answers",
-        "evaluation",
-        "created_at",
-        "updated_at"
-      )
-      VALUES (
-        ${createdId}::uuid,
-        ${userId}::uuid,
-        NULL,
-        ${targetUnitId}::uuid,
-        ${normalizedTemplateId ?? null}::uuid,
-        ${JSON.stringify(normalizedAnswersObject)}::jsonb,
-        ${evaluation},
-        NOW(),
-        NOW()
-      )
-      ON CONFLICT ("user_id", "unit_id")
-      DO UPDATE SET
-        "template_id" = EXCLUDED."template_id",
-        "answers" = EXCLUDED."answers",
-        "evaluation" = EXCLUDED."evaluation",
-        "updated_at" = NOW()
-    `;
-
-    return await prisma.note.findFirst({
-      where: {
-        userId,
+    return await prisma.$transaction(async (tx) => {
+      const data = {
+        placeId: null,
         unitId: targetUnitId,
-      },
+        templateId: normalizedTemplateId ?? null,
+        answers: answersJson,
+        evaluation,
+      };
+
+      const updated = await tx.note.updateMany({
+        where: {
+          userId,
+          unitId: targetUnitId,
+        },
+        data,
+      });
+
+      if (updated.count === 0) {
+        return await tx.note.create({
+          data: {
+            userId,
+            ...data,
+          },
+        });
+      }
+
+      const existing = await tx.note.findFirst({
+        where: {
+          userId,
+          unitId: targetUnitId,
+        },
+        orderBy: {
+          updatedAt: "desc",
+        },
+      });
+
+      if (existing) return existing;
+
+      return await tx.note.create({
+        data: {
+          userId,
+          ...data,
+        },
+      });
     });
   }
 
@@ -484,44 +559,52 @@ export async function saveNote({
     );
   }
 
-  const createdId = crypto.randomUUID();
-
-  await prisma.$executeRaw`
-    INSERT INTO "notes" (
-      "id",
-      "user_id",
-      "place_id",
-      "unit_id",
-      "template_id",
-      "answers",
-      "evaluation",
-      "created_at",
-      "updated_at"
-    )
-    VALUES (
-      ${createdId}::uuid,
-      ${userId}::uuid,
-      ${targetPlaceId}::uuid,
-      NULL,
-      ${normalizedTemplateId ?? null}::uuid,
-      ${JSON.stringify(normalizedAnswersObject)}::jsonb,
-      ${evaluation},
-      NOW(),
-      NOW()
-    )
-    ON CONFLICT ("user_id", "place_id")
-    DO UPDATE SET
-      "template_id" = EXCLUDED."template_id",
-      "answers" = EXCLUDED."answers",
-      "evaluation" = EXCLUDED."evaluation",
-      "updated_at" = NOW()
-  `;
-
-  return await prisma.note.findFirst({
-    where: {
-      userId,
+  return await prisma.$transaction(async (tx) => {
+    const data = {
       placeId: targetPlaceId,
-    },
+      unitId: null,
+      templateId: normalizedTemplateId ?? null,
+      answers: answersJson,
+      evaluation,
+    };
+
+    const updated = await tx.note.updateMany({
+      where: {
+        userId,
+        placeId: targetPlaceId,
+        unitId: null,
+      },
+      data,
+    });
+
+    if (updated.count === 0) {
+      return await tx.note.create({
+        data: {
+          userId,
+          ...data,
+        },
+      });
+    }
+
+    const existing = await tx.note.findFirst({
+      where: {
+        userId,
+        placeId: targetPlaceId,
+        unitId: null,
+      },
+      orderBy: {
+        updatedAt: "desc",
+      },
+    });
+
+    if (existing) return existing;
+
+    return await tx.note.create({
+      data: {
+        userId,
+        ...data,
+      },
+    });
   });
 }
 

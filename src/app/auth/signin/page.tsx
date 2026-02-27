@@ -59,13 +59,17 @@ export default function SignInPage() {
 
         <div className="space-y-4 mb-10">
           <button
-            onClick={() => signIn("kakao", { callbackUrl: "/" })}
+            onClick={() =>
+              signIn("kakao", { callbackUrl: "/auth/complete-profile" })
+            }
             className="w-full bg-[#FEE500] text-[#191919] py-4 rounded-2xl font-black text-sm flex items-center justify-center gap-3 hover:bg-[#FADA0A] transition-all active:scale-[0.98]"
           >
             <MessageCircle className="w-5 h-5 fill-current" /> 카카오로 로그인
           </button>
           <button
-            onClick={() => signIn("google", { callbackUrl: "/" })}
+            onClick={() =>
+              signIn("google", { callbackUrl: "/auth/complete-profile" })
+            }
             className="w-full bg-white border-2 border-gray-100 text-gray-700 py-4 rounded-2xl font-black text-sm flex items-center justify-center gap-3 hover:bg-gray-50 transition-all active:scale-[0.98]"
           >
             <Chrome className="w-5 h-5" /> 구글로 로그인

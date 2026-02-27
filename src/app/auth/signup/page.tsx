@@ -26,7 +26,7 @@ export default function SignUpPage() {
       const formData = new FormData();
       formData.append("email", email);
       formData.append("password", password);
-      formData.append("name", name);
+      formData.append("name", name.trim());
 
       const resultSignup = await signUpUser(formData);
 
@@ -82,13 +82,17 @@ export default function SignUpPage() {
 
         <div className="space-y-3 mb-8">
           <button
-            onClick={() => signIn("kakao", { callbackUrl: "/" })}
+            onClick={() =>
+              signIn("kakao", { callbackUrl: "/auth/complete-profile" })
+            }
             className="w-full bg-[#FEE500] text-[#191919] py-3.5 rounded-2xl font-black text-xs flex items-center justify-center gap-3 hover:bg-[#FADA0A] transition-all active:scale-[0.98]"
           >
             <MessageCircle className="w-4 h-4 fill-current" /> 카카오로 시작하기
           </button>
           <button
-            onClick={() => signIn("google", { callbackUrl: "/" })}
+            onClick={() =>
+              signIn("google", { callbackUrl: "/auth/complete-profile" })
+            }
             className="w-full bg-white border-2 border-gray-100 text-gray-700 py-3.5 rounded-2xl font-black text-xs flex items-center justify-center gap-3 hover:bg-gray-50 transition-all active:scale-[0.98]"
           >
             <Chrome className="w-4 h-4" /> 구글로 시작하기
@@ -107,11 +111,13 @@ export default function SignUpPage() {
         <form onSubmit={handleSignUp} className="space-y-4">
           <div className="space-y-2">
             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest pl-2">
-              Full Name
+              Nickname
             </label>
             <input
               type="text"
-              placeholder="Your Name"
+              required
+              maxLength={30}
+              placeholder="닉네임"
               className="w-full bg-gray-50 border-2 border-gray-100 p-4 rounded-2xl text-sm font-bold outline-none focus:border-blue-400 focus:bg-white transition-all"
               value={name}
               onChange={(e) => setName(e.target.value)}

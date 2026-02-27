@@ -7,6 +7,8 @@ import {
   saveNote,
   saveFavorite,
   saveExternalLink,
+  updateExternalLink,
+  deleteExternalLink,
   saveProviderExternalLink,
   getTemplates,
   upsertUnit,
@@ -34,6 +36,7 @@ import {
   ChevronRight,
   ArrowLeft,
   Trash2,
+  Pencil,
 } from "lucide-react";
 
 interface PlaceSheetProps {
@@ -83,6 +86,16 @@ function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
+function canOpenUrl(url?: string | null): boolean {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 export default function PlaceSheet({
   place,
   onClose,
@@ -104,6 +117,17 @@ export default function PlaceSheet({
   const [linkUrl, setLinkUrl] = useState("");
   const [addingLink, setAddingLink] = useState(false);
   const [showLinkInput, setShowLinkInput] = useState(false);
+  const [editingCustomLinkId, setEditingCustomLinkId] = useState<string | null>(
+    null
+  );
+  const [customDraftTitle, setCustomDraftTitle] = useState("");
+  const [customDraftUrl, setCustomDraftUrl] = useState("");
+  const [savingCustomLinkId, setSavingCustomLinkId] = useState<string | null>(
+    null
+  );
+  const [deletingCustomLinkId, setDeletingCustomLinkId] = useState<string | null>(
+    null
+  );
   const [editingProvider, setEditingProvider] = useState<ExternalProvider | null>(
     null
   );
@@ -125,7 +149,7 @@ export default function PlaceSheet({
     return EXTERNAL_PROVIDER_KEYS.map((provider) => ({
       provider,
       title: getExternalProviderTitle(provider),
-      ...resolveExternalProviderLink(provider, place, externalLinks),
+      ...resolveExternalProviderLink(provider, externalLinks),
     }));
   }, [dbPlace?.externalLinks, place]);
 
@@ -157,6 +181,11 @@ export default function PlaceSheet({
     setEditingProvider(null);
     setProviderDraftUrl("");
     setSavingProvider(null);
+    setEditingCustomLinkId(null);
+    setCustomDraftTitle("");
+    setCustomDraftUrl("");
+    setSavingCustomLinkId(null);
+    setDeletingCustomLinkId(null);
 
     getPlaceByKakaoId(place.id).then((data) => {
       if (data) {
@@ -302,7 +331,12 @@ export default function PlaceSheet({
   };
 
   const handleSaveProviderLink = async () => {
-    if (!place || !editingProvider || !providerDraftUrl) return;
+    if (!place || !editingProvider) return;
+    if (!providerDraftUrl.trim() && !editingProviderLink?.isSaved) {
+      setEditingProvider(null);
+      setProviderDraftUrl("");
+      return;
+    }
     setSavingProvider(editingProvider);
     try {
       const savedPlace = dbPlace ?? (await upsertPlace(place));
@@ -316,6 +350,51 @@ export default function PlaceSheet({
       alert(getErrorMessage(e, "링크 저장 중 오류가 발생했습니다."));
     } finally {
       setSavingProvider(null);
+    }
+  };
+
+  const handleStartCustomLinkEdit = (link: { id: string; title: string; url: string }) => {
+    setEditingCustomLinkId(link.id);
+    setCustomDraftTitle(link.title);
+    setCustomDraftUrl(link.url);
+  };
+
+  const handleSaveCustomLink = async () => {
+    if (!place || !editingCustomLinkId) return;
+    setSavingCustomLinkId(editingCustomLinkId);
+    try {
+      await updateExternalLink(editingCustomLinkId, customDraftTitle, customDraftUrl);
+      const fresh = await getPlaceByKakaoId(place.id);
+      setDbPlace(fresh);
+      setEditingCustomLinkId(null);
+      setCustomDraftTitle("");
+      setCustomDraftUrl("");
+      onSave?.();
+    } catch (e: unknown) {
+      alert(getErrorMessage(e, "링크 수정 중 오류가 발생했습니다."));
+    } finally {
+      setSavingCustomLinkId(null);
+    }
+  };
+
+  const handleDeleteCustomLink = async (linkId: string) => {
+    if (!place) return;
+    if (!confirm("이 참고 링크를 삭제하시겠습니까?")) return;
+    setDeletingCustomLinkId(linkId);
+    try {
+      await deleteExternalLink(linkId);
+      const fresh = await getPlaceByKakaoId(place.id);
+      setDbPlace(fresh);
+      if (editingCustomLinkId === linkId) {
+        setEditingCustomLinkId(null);
+        setCustomDraftTitle("");
+        setCustomDraftUrl("");
+      }
+      onSave?.();
+    } catch (e: unknown) {
+      alert(getErrorMessage(e, "링크 삭제 중 오류가 발생했습니다."));
+    } finally {
+      setDeletingCustomLinkId(null);
     }
   };
 
@@ -359,6 +438,9 @@ export default function PlaceSheet({
     view === "UNIT_DETAIL"
       ? activeUnit?.notes?.[0]?.evaluation
       : dbPlace?.notes?.find((n) => !n.unitId)?.evaluation;
+  const editingProviderLink = editingProvider
+    ? providerLinks.find((link) => link.provider === editingProvider) || null
+    : null;
 
   return (
     <div className="fixed md:absolute bottom-0 md:top-0 right-0 h-[100dvh] md:h-full w-full md:w-[420px] bg-white shadow-[-10px_0_30px_rgba(0,0,0,0.1)] z-20 flex flex-col transition-all text-gray-900 font-sans border-t md:border-t-0 md:border-l border-gray-100 rounded-t-3xl md:rounded-none overflow-hidden">
@@ -437,10 +519,10 @@ export default function PlaceSheet({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6 pt-4">
+      <div className="flex-1 overflow-y-auto p-6 pt-4 [scrollbar-gutter:stable]">
         <div className="space-y-10">
           {view === "COMPLEX" && (
-            <div className="space-y-10">
+            <div className="space-y-6">
               <div className="flex items-start gap-2 bg-gray-50 p-3 rounded-xl border border-gray-100">
                 <Info className="w-4 h-4 text-gray-400 mt-0.5" />
                 <p className="text-xs text-gray-500 leading-relaxed font-medium">
@@ -454,22 +536,33 @@ export default function PlaceSheet({
               </div>
 
               <div className="space-y-2">
-                <div className="flex flex-wrap gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   {providerLinks.map((link) => (
-                    <div key={link.provider} className="flex items-center gap-1">
-                      <a
-                        href={link.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="flex items-center gap-1.5 text-[11px] font-black bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg border border-indigo-100 hover:bg-indigo-100 transition-colors"
-                      >
-                        <ExternalLink className="w-3 h-3" /> {link.title}
-                      </a>
+                    <div
+                      key={link.provider}
+                      className="grid grid-cols-[minmax(0,1fr)_3.5rem] items-center gap-2"
+                    >
+                      {canOpenUrl(link.url) ? (
+                        <a
+                          href={link.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="min-w-0 h-8 flex items-center gap-1.5 text-[11px] font-black bg-indigo-50 text-indigo-700 px-3 rounded-lg border border-indigo-100 hover:bg-indigo-100 transition-colors"
+                        >
+                          <ExternalLink className="w-3 h-3 shrink-0" />
+                          <span className="truncate">{link.title}</span>
+                        </a>
+                      ) : (
+                        <div className="min-w-0 h-8 flex items-center gap-1.5 text-[11px] font-black bg-gray-50 text-gray-400 px-3 rounded-lg border border-dashed border-gray-200">
+                          <ExternalLink className="w-3 h-3 shrink-0" />
+                          <span className="truncate">{link.title}</span>
+                        </div>
+                      )}
                       <button
                         onClick={() => handleStartProviderEdit(link.provider)}
-                        className="text-[10px] font-black px-2 py-1 rounded-md border border-gray-200 text-gray-500 hover:bg-gray-100"
+                        className="h-8 w-14 text-[10px] font-black rounded-md border border-gray-200 text-gray-500 hover:bg-gray-100"
                       >
-                        {link.isSaved ? "수정" : "저장"}
+                        {link.isSaved ? "수정" : "설정"}
                       </button>
                     </div>
                   ))}
@@ -479,6 +572,9 @@ export default function PlaceSheet({
                   <div className="bg-gray-50 rounded-xl p-3 border border-gray-100 space-y-2">
                     <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest">
                       {getExternalProviderTitle(editingProvider)} 링크 설정
+                    </p>
+                    <p className="text-[11px] text-gray-500 leading-relaxed">
+                      URL을 비워두면 저장된 링크를 제거하고, 채운 경우에만 이동 가능합니다.
                     </p>
                     <input
                       type="text"
@@ -502,37 +598,118 @@ export default function PlaceSheet({
                         disabled={savingProvider === editingProvider}
                         className="flex-[2] bg-gray-900 text-white text-[11px] font-black py-2 rounded-lg disabled:opacity-60"
                       >
-                        {savingProvider === editingProvider ? "저장 중..." : "저장"}
+                        {savingProvider === editingProvider
+                          ? "저장 중..."
+                          : providerDraftUrl.trim()
+                          ? "저장"
+                          : editingProviderLink?.isSaved
+                          ? "비우기"
+                          : "닫기"}
                       </button>
                     </div>
                   </div>
                 )}
 
-                <div className="flex flex-wrap gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   {customLinks.map((link) => (
-                    <a
+                    <div
                       key={link.id}
-                      href={link.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex items-center gap-1.5 text-[11px] font-black bg-gray-100 text-gray-600 px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-200 transition-colors"
+                      className="grid grid-cols-[minmax(0,1fr)_4.5rem] items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 p-1.5"
                     >
-                      <ExternalLink className="w-3 h-3" /> {link.title}
-                    </a>
+                      {canOpenUrl(link.url) ? (
+                        <a
+                          href={link.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="min-w-0 h-8 flex items-center gap-1.5 text-[11px] font-black bg-white text-gray-600 px-2.5 rounded-md border border-gray-200 hover:bg-gray-100 transition-colors"
+                        >
+                          <ExternalLink className="w-3 h-3 shrink-0" />
+                          <span className="truncate">{link.title}</span>
+                        </a>
+                      ) : (
+                        <div className="min-w-0 h-8 flex items-center gap-1.5 text-[11px] font-black bg-white text-gray-400 px-2.5 rounded-md border border-dashed border-gray-200">
+                          <ExternalLink className="w-3 h-3 shrink-0" />
+                          <span className="truncate">{link.title}</span>
+                        </div>
+                      )}
+                      <div className="w-[4.5rem] flex items-center justify-end gap-1 shrink-0">
+                        <button
+                          onClick={() => handleStartCustomLinkEdit(link)}
+                          className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-200 rounded-md transition-colors"
+                          aria-label="참고 링크 수정"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteCustomLink(link.id)}
+                          disabled={deletingCustomLinkId === link.id}
+                          className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors disabled:opacity-60"
+                          aria-label="참고 링크 삭제"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
                   ))}
                 </div>
+
+                {editingCustomLinkId && (
+                  <div className="bg-gray-50 rounded-xl p-3 border border-gray-100 space-y-2">
+                    <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest">
+                      참고 링크 수정
+                    </p>
+                    <input
+                      type="text"
+                      placeholder="제목"
+                      className="block w-full text-xs bg-white border-2 border-gray-100 p-2.5 rounded-lg focus:ring-2 focus:ring-blue-100 focus:border-blue-300 font-bold box-border outline-none"
+                      value={customDraftTitle}
+                      onChange={(e) => setCustomDraftTitle(e.target.value)}
+                    />
+                    <input
+                      type="text"
+                      placeholder="https://..."
+                      className="block w-full text-xs bg-white border-2 border-gray-100 p-2.5 rounded-lg focus:ring-2 focus:ring-blue-100 focus:border-blue-300 font-bold box-border outline-none"
+                      value={customDraftUrl}
+                      onChange={(e) => setCustomDraftUrl(e.target.value)}
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          setEditingCustomLinkId(null);
+                          setCustomDraftTitle("");
+                          setCustomDraftUrl("");
+                        }}
+                        className="flex-1 bg-white text-gray-400 text-[11px] font-black py-2 rounded-lg border border-gray-100"
+                      >
+                        취소
+                      </button>
+                      <button
+                        onClick={handleSaveCustomLink}
+                        disabled={savingCustomLinkId === editingCustomLinkId}
+                        className="flex-[2] bg-gray-900 text-white text-[11px] font-black py-2 rounded-lg disabled:opacity-60"
+                      >
+                        {savingCustomLinkId === editingCustomLinkId ? "저장 중..." : "수정 저장"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {customLinks.length === 0 && !editingCustomLinkId && (
+                  <p className="text-[11px] text-gray-400 font-medium">
+                    추가된 참고 링크가 없습니다.
+                  </p>
+                )}
               </div>
 
-              <div className="space-y-3">
+              <div className="space-y-4">
                 <label className="text-xs font-black text-gray-400 uppercase tracking-tighter">
                   마커 색상 설정
                 </label>
-                <div className="flex gap-2.5">
+                <div className="flex flex-wrap items-center gap-2">
                   {COLORS.map((color) => (
                     <button
                       key={color}
                       onClick={() => setSelectedColor(color)}
-                      className={`w-7 h-7 rounded-full border-2 transition-all hover:scale-110 ${
+                      className={`w-8 h-8 rounded-full border-2 transition-all hover:scale-110 ${
                         selectedColor === color
                           ? "border-gray-900 shadow-lg"
                           : "border-white"
@@ -542,7 +719,7 @@ export default function PlaceSheet({
                   ))}
                   <button
                     onClick={() => setSelectedColor(null)}
-                    className={`w-7 h-7 rounded-full border border-gray-200 flex items-center justify-center text-[10px] font-black text-gray-300 ${
+                    className={`h-8 px-2.5 rounded-full border border-gray-200 flex items-center justify-center text-[10px] font-black text-gray-300 ${
                       selectedColor === null
                         ? "bg-gray-900 text-white border-gray-900 shadow-lg"
                         : "bg-white"
@@ -551,10 +728,16 @@ export default function PlaceSheet({
                     해제
                   </button>
                 </div>
+                {evaluation === "HOLD" && selectedColor === null && (
+                  <p className="text-[11px] text-gray-500 leading-relaxed font-medium">
+                    평가가 <span className="font-black">HOLD</span>면 기본 마커색(회색)으로
+                    보일 수 있습니다. 색상을 지정하면 회색 대신 선택한 색으로 표시됩니다.
+                  </p>
+                )}
               </div>
 
               {dbPlace && (
-                <div className="pt-4 border-t border-gray-50">
+                <div className="pt-2 pb-0.5 border-t border-gray-50">
                   <button
                     onClick={handleDeletePlace}
                     className="flex items-center gap-2 text-[11px] font-black text-red-400 hover:text-red-600 transition-colors uppercase tracking-widest pl-1"
@@ -569,19 +752,19 @@ export default function PlaceSheet({
           )}
 
           {view === "UNITS" && (
-            <div className="space-y-6">
-              <div className="flex justify-between items-center">
+            <div className="space-y-4 px-1">
+              <div className="flex justify-between items-center rounded-2xl border border-gray-100 bg-gray-50 px-3 py-2.5">
                 <h3 className="text-sm font-black text-gray-800">등록된 세대</h3>
                 <button
                   onClick={() => setShowUnitAdd(true)}
-                  className="bg-gray-900 text-white text-[10px] px-3 py-1.5 rounded-lg font-black hover:bg-gray-800 flex items-center gap-1"
+                  className="h-8 bg-gray-900 text-white text-[10px] px-3 rounded-lg font-black hover:bg-gray-800 flex items-center gap-1"
                 >
                   <Plus className="w-3 h-3" /> 세대 추가
                 </button>
               </div>
 
               {showUnitAdd && (
-                <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100 space-y-3">
+                <div className="rounded-2xl border border-blue-100 bg-blue-50 p-3.5 space-y-3">
                   <input
                     type="text"
                     placeholder="세대명/호수 (예: 101동 1203호)"
@@ -606,59 +789,61 @@ export default function PlaceSheet({
                 </div>
               )}
 
-              <div className="grid grid-cols-1 gap-3">
+              <div className="rounded-2xl border border-gray-100 bg-gray-50 p-2">
                 {units.length === 0 ? (
-                  <div className="py-12 text-center text-gray-300 text-xs font-medium border-2 border-dashed border-gray-50 rounded-2xl">
+                  <div className="py-12 text-center text-gray-300 text-xs font-medium border-2 border-dashed border-gray-100 bg-white rounded-xl">
                     아직 등록된 세대가 없습니다.
                   </div>
                 ) : (
-                  units.map((unit) => {
-                    const evalStatus = unit.notes?.[0]?.evaluation;
-                    return (
-                      <button
-                        key={unit.id}
-                        onClick={() => {
-                          setActiveUnit(unit);
-                          setView("UNIT_DETAIL");
-                        }}
-                        className="flex items-center justify-between p-4 bg-white border border-gray-100 rounded-2xl hover:border-blue-200 transition-all shadow-sm active:scale-[0.98]"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div
-                            className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                              evalStatus === "PASS"
-                                ? "bg-green-50 text-green-600"
-                                : evalStatus === "FAIL"
-                                ? "bg-red-50 text-red-600"
-                                : "bg-gray-50 text-gray-400"
-                            }`}
-                          >
-                            <Home className="w-5 h-5" />
+                  <div className="grid grid-cols-1 gap-2">
+                    {units.map((unit) => {
+                      const evalStatus = unit.notes?.[0]?.evaluation;
+                      return (
+                        <button
+                          key={unit.id}
+                          onClick={() => {
+                            setActiveUnit(unit);
+                            setView("UNIT_DETAIL");
+                          }}
+                          className="w-full flex items-center justify-between px-3.5 py-3 bg-white border border-white rounded-xl hover:border-blue-200 transition-all shadow-sm active:scale-[0.99]"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div
+                              className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
+                                evalStatus === "PASS"
+                                  ? "bg-green-50 text-green-600"
+                                  : evalStatus === "FAIL"
+                                  ? "bg-red-50 text-red-600"
+                                  : "bg-gray-50 text-gray-400"
+                              }`}
+                            >
+                              <Home className="w-4 h-4" />
+                            </div>
+                            <div className="text-left space-y-0.5 min-w-0">
+                              <span className="block text-sm font-black text-gray-800 truncate">
+                                {unit.label}
+                              </span>
+                              <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wide">
+                                HOUSEHOLD UNIT
+                              </span>
+                            </div>
                           </div>
-                          <div className="text-left">
-                            <span className="block text-sm font-black text-gray-800">
-                              {unit.label}
-                            </span>
-                            <span className="text-[10px] text-gray-400 font-bold uppercase">
-                              HOUSEHOLD UNIT
-                            </span>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteUnit(unit.id);
+                              }}
+                              className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                            <ChevronRight className="w-4 h-4 text-gray-300" />
                           </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteUnit(unit.id);
-                            }}
-                            className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                          <ChevronRight className="w-4 h-4 text-gray-300" />
-                        </div>
-                      </button>
-                    );
-                  })
+                        </button>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
             </div>
@@ -789,6 +974,22 @@ export default function PlaceSheet({
           </select>
         </div>
 
+        <div className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3.5 space-y-1.5">
+          <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest">
+            평가식 안내 (대략)
+          </p>
+          <p className="text-[11px] text-gray-600 leading-relaxed font-medium">
+            총점 = Σ(문항 기본점수 × 중요도 × 방향)
+          </p>
+          <p className="text-[11px] text-gray-500 leading-relaxed">
+            기본점수: 평점(1~5→-2~+2), 예/아니오(예 +2, 아니오 -2, 대시 0),
+            복수선택((선택수/옵션수)×2)
+          </p>
+          <p className="text-[11px] text-gray-500 leading-relaxed">
+            방향: 불리 항목은 부호 반전. 결과: 총점 3 이상 PASS, 0 이상 HOLD, 그 미만 FAIL
+          </p>
+        </div>
+
         <div className="space-y-12">
           {Object.entries(categories).map(([catName, qs]) => (
             <div key={catName} className="space-y-5">
@@ -813,8 +1014,8 @@ export default function PlaceSheet({
                         </span>
                       )}
                       {q.criticalLevel > 1 && (
-                        <span className="bg-red-50 text-red-500 text-[10px] px-1.5 py-0.5 rounded font-black border border-red-100 uppercase">
-                          중요도 {q.criticalLevel}
+                        <span className="bg-red-50 text-red-500 text-[10px] min-w-5 h-5 px-1 rounded font-black border border-red-100 inline-flex items-center justify-center leading-none">
+                          {q.criticalLevel}
                         </span>
                       )}
                     </label>

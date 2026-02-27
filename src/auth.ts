@@ -17,9 +17,81 @@ type RateLimitEntry = {
 };
 
 const credentialRateLimitStore = new Map<string, RateLimitEntry>();
+const kakaoClientId = process.env.AUTH_KAKAO_ID;
+const kakaoClientSecret = process.env.AUTH_KAKAO_SECRET;
+
+type KakaoProfilePayload = {
+  id?: string | number;
+  properties?: {
+    nickname?: string | null;
+    profile_image?: string | null;
+  };
+  kakao_account?: {
+    profile?: {
+      nickname?: string | null;
+      profile_image_url?: string | null;
+    };
+    email?: string | null;
+  };
+};
+
+function normalizeOptionalString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function getKakaoIdentity(profile: unknown): {
+  name: string | null;
+  email: string | null;
+  image: string | null;
+} {
+  if (!profile || typeof profile !== "object") {
+    return { name: null, email: null, image: null };
+  }
+
+  const kakaoProfile = profile as KakaoProfilePayload;
+  const name =
+    normalizeOptionalString(kakaoProfile.properties?.nickname) ||
+    normalizeOptionalString(kakaoProfile.kakao_account?.profile?.nickname);
+  const email = normalizeOptionalString(kakaoProfile.kakao_account?.email);
+  const image =
+    normalizeOptionalString(kakaoProfile.properties?.profile_image) ||
+    normalizeOptionalString(
+      kakaoProfile.kakao_account?.profile?.profile_image_url,
+    );
+
+  return { name, email, image };
+}
+
+async function getKakaoIdentityByAccessToken(accessToken: string): Promise<{
+  name: string | null;
+  email: string | null;
+  image: string | null;
+}> {
+  try {
+    const response = await fetch("https://kapi.kakao.com/v2/user/me", {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      return { name: null, email: null, image: null };
+    }
+
+    const data = (await response.json()) as unknown;
+    return getKakaoIdentity(data);
+  } catch {
+    return { name: null, email: null, image: null };
+  }
+}
 
 function normalizeEmail(value: unknown) {
-  return String(value || "").trim().toLowerCase();
+  return String(value || "")
+    .trim()
+    .toLowerCase();
 }
 
 function getClientIp(request?: Request) {
@@ -120,7 +192,10 @@ function getCredentialsProvider() {
           image: user.image,
         };
       } catch (error) {
-        if (error instanceof Error && error.message.startsWith("RATE_LIMITED")) {
+        if (
+          error instanceof Error &&
+          error.message.startsWith("RATE_LIMITED")
+        ) {
           throw error;
         }
         console.error("Auth authorize error:", error);
@@ -140,12 +215,24 @@ const providers = [
         }),
       ]
     : []),
-  ...(process.env.AUTH_KAKAO_ID && process.env.AUTH_KAKAO_SECRET
+  ...(kakaoClientId
     ? [
         Kakao({
-          clientId: process.env.AUTH_KAKAO_ID,
-          clientSecret: process.env.AUTH_KAKAO_SECRET,
+          clientId: kakaoClientId,
+          ...(kakaoClientSecret
+            ? { clientSecret: kakaoClientSecret }
+            : { client: { token_endpoint_auth_method: "none" as const } }),
           allowDangerousEmailAccountLinking: false,
+          profile(profile) {
+            const baseProfile = profile as KakaoProfilePayload;
+            const kakaoIdentity = getKakaoIdentity(profile);
+            return {
+              id: String(baseProfile.id),
+              name: kakaoIdentity.name,
+              email: kakaoIdentity.email,
+              image: kakaoIdentity.image,
+            };
+          },
         }),
       ]
     : []),
@@ -159,9 +246,75 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     strategy: "jwt",
   },
   callbacks: {
+    async jwt({ token, user, account, profile }) {
+      if (user) {
+        token.name = user.name ?? token.name;
+        token.email = user.email ?? token.email;
+        token.picture = user.image ?? token.picture;
+      }
+
+      if (account?.provider === "kakao") {
+        let kakaoIdentity = getKakaoIdentity(profile);
+
+        const hasName =
+          typeof token.name === "string" && token.name.trim().length > 0;
+        const hasEmail =
+          typeof token.email === "string" && token.email.trim().length > 0;
+        const hasImage =
+          typeof token.picture === "string" && token.picture.trim().length > 0;
+
+        const accessToken =
+          typeof account.access_token === "string"
+            ? account.access_token
+            : null;
+
+        if ((!hasName || !hasEmail || !hasImage) && accessToken) {
+          const tokenIdentity =
+            await getKakaoIdentityByAccessToken(accessToken);
+          kakaoIdentity = {
+            name: kakaoIdentity.name || tokenIdentity.name,
+            email: kakaoIdentity.email || tokenIdentity.email,
+            image: kakaoIdentity.image || tokenIdentity.image,
+          };
+        }
+
+        if (!hasName && kakaoIdentity.name) token.name = kakaoIdentity.name;
+        if (!hasEmail && kakaoIdentity.email) token.email = kakaoIdentity.email;
+        if (!hasImage && kakaoIdentity.image)
+          token.picture = kakaoIdentity.image;
+      }
+
+      const tokenName = normalizeOptionalString(token.name);
+      const tokenEmail = normalizeOptionalString(token.email);
+      const tokenImage = normalizeOptionalString(token.picture);
+
+      if (token.sub && (!tokenName || !tokenEmail || !tokenImage)) {
+        const dbUser = await prisma.user.findUnique({
+          where: { id: token.sub },
+          select: { name: true, email: true, image: true },
+        });
+
+        if (dbUser) {
+          if (!tokenName && dbUser.name) token.name = dbUser.name;
+          if (!tokenEmail && dbUser.email) token.email = dbUser.email;
+          if (!tokenImage && dbUser.image) token.picture = dbUser.image;
+        }
+      }
+
+      return token;
+    },
     async session({ session, token }) {
       if (token.sub && session.user) {
         session.user.id = token.sub;
+        if (!session.user.name && typeof token.name === "string") {
+          session.user.name = token.name;
+        }
+        if (!session.user.email && typeof token.email === "string") {
+          session.user.email = token.email;
+        }
+        if (!session.user.image && typeof token.picture === "string") {
+          session.user.image = token.picture;
+        }
       }
       return session;
     },
